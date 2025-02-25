@@ -6,6 +6,7 @@ import Sidebar from "@/components/layout/Sidebar";
 import Orders from "@/pages/orders";
 import Products from "@/pages/products";
 import Jobs from "@/pages/jobs";
+import Analytics from "@/pages/analytics";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -17,6 +18,7 @@ function Router() {
           <Route path="/orders" component={Orders} />
           <Route path="/products" component={Products} />
           <Route path="/jobs" component={Jobs} />
+          <Route path="/analytics" component={Analytics} />
           <Route component={NotFound} />
         </Switch>
       </main>
