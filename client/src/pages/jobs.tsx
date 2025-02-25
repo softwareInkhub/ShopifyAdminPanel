@@ -39,7 +39,7 @@ export default function Jobs() {
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
 
-  // Fetch jobs with their batches
+  // Fetch jobs with their batches - now with more frequent updates
   const { data: jobs, isLoading } = useQuery<JobWithBatches[]>({
     queryKey: ['/api/jobs'],
     queryFn: async () => {
@@ -57,6 +57,27 @@ export default function Jobs() {
       );
 
       return jobsWithBatches;
+    },
+    // Refresh more frequently when jobs are running
+    refetchInterval: (data) => {
+      const hasRunningJobs = data?.some(job => job.status === 'processing' || job.status === 'pending');
+      return hasRunningJobs ? 1000 : false;
+    }
+  });
+
+  // Fetch batches for selected job in real-time
+  const { data: selectedJobBatches } = useQuery<JobBatch[]>({
+    queryKey: ['/api/jobs', selectedJob, 'batches'],
+    queryFn: async () => {
+      if (!selectedJob) return [];
+      const res = await fetch(`/api/jobs/${selectedJob}/batches`);
+      if (!res.ok) throw new Error('Failed to fetch job batches');
+      return res.json();
+    },
+    enabled: !!selectedJob,
+    refetchInterval: (data, query) => {
+      const job = jobs?.find(j => j.id === selectedJob);
+      return job?.status === 'processing' ? 1000 : false;
     }
   });
 
@@ -70,8 +91,9 @@ export default function Jobs() {
           batchSize: 50
         }
       }),
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['/api/jobs'] });
+      setSelectedJob(data.id); // Auto-expand the new job
       toast({ title: "Job started successfully" });
     }
   });
@@ -97,6 +119,9 @@ export default function Jobs() {
       });
     }
   };
+
+  // Update batches data when selected job changes
+  const currentJobBatches = selectedJob ? (selectedJobBatches || jobs?.find(j => j.id === selectedJob)?.batches || []) : [];
 
   return (
     <div className="p-8">
@@ -206,13 +231,13 @@ export default function Jobs() {
                     )}
                   </TableCell>
                 </TableRow>
-                {selectedJob === job.id && job.batches && (
+                {selectedJob === job.id && (
                   <TableRow>
                     <TableCell colSpan={7} className="bg-muted/50 p-0">
                       <div className="p-4">
                         <h3 className="font-semibold mb-2">Batch Details</h3>
                         <div className="space-y-2">
-                          {job.batches.map((batch) => (
+                          {currentJobBatches.map((batch) => (
                             <Accordion
                               key={batch.id}
                               type="single"
