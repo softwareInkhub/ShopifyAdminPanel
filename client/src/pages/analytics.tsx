@@ -16,9 +16,6 @@ import {
 } from "@/components/ui/select";
 import { format } from "date-fns";
 
-// Import types
-import type { Job, JobBatch } from "@shared/schema";
-
 interface JobAnalytics {
   totalJobs: number;
   completedJobs: number;
@@ -46,22 +43,32 @@ export default function Analytics() {
   });
 
   // Calculate heatmap data
-  const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const hoursOfDay = Array.from({ length: 24 }, (_, i) => i);
-  
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const hours = Array.from({ length: 24 }, (_, i) => i);
+
   const getHeatmapData = () => {
     if (!analytics?.dailyActivity) return [];
-    
-    const heatmapData = [];
+
+    const heatmapData = Array(7).fill(0).map(() => Array(24).fill(0));
+    let maxValue = 0;
+
     for (const [timestamp, count] of Object.entries(analytics.dailyActivity)) {
       const date = new Date(parseInt(timestamp));
-      heatmapData.push({
-        day: daysOfWeek[date.getDay()],
-        hour: date.getHours(),
-        value: count
-      });
+      const day = date.getDay();
+      const hour = date.getHours();
+      heatmapData[day][hour] += count;
+      maxValue = Math.max(maxValue, heatmapData[day][hour]);
     }
-    return heatmapData;
+
+    return { heatmapData, maxValue };
+  };
+
+  const { heatmapData, maxValue } = getHeatmapData();
+
+  const getColorIntensity = (value: number) => {
+    if (maxValue === 0) return 'rgba(34, 197, 94, 0)';
+    const intensity = Math.min((value / maxValue) * 0.8 + 0.2, 1);
+    return `rgba(34, 197, 94, ${intensity})`;
   };
 
   return (
@@ -128,43 +135,63 @@ export default function Analytics() {
         </Card>
       </div>
 
-      <Card className="mt-8">
+      <Card>
         <CardHeader>
           <CardTitle>Activity Heatmap</CardTitle>
           <CardDescription>Job activity by day and hour</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="h-64">
-            {/* Heatmap Grid */}
-            <div className="grid grid-cols-24 gap-1">
-              {/* Hours labels */}
-              <div className="col-span-24 grid grid-cols-24 text-xs text-center mb-2">
-                {hoursOfDay.map(hour => (
-                  <div key={hour}>{hour}h</div>
+          <div className="space-y-6">
+            <div className="relative">
+              {/* Hours header */}
+              <div className="grid grid-cols-[auto_repeat(24,1fr)] gap-1 mb-2">
+                <div className="w-16"></div>
+                {hours.map(hour => (
+                  <div key={hour} className="text-xs text-center">
+                    {hour}h
+                  </div>
                 ))}
               </div>
-              
-              {/* Days and cells */}
-              {daysOfWeek.map(day => (
-                <div key={day} className="col-span-24 grid grid-cols-24 gap-1">
-                  <div className="text-xs text-right pr-2">{day}</div>
-                  {hoursOfDay.map(hour => {
-                    const data = getHeatmapData().find(d => d.day === day && d.hour === hour);
-                    const intensity = data ? Math.min(data.value / 10, 1) : 0;
+
+              {/* Days and heatmap cells */}
+              {days.map((day, dayIndex) => (
+                <div key={day} className="grid grid-cols-[auto_repeat(24,1fr)] gap-1 mb-1">
+                  <div className="w-16 text-sm font-medium text-right pr-4 py-2">
+                    {day}
+                  </div>
+                  {hours.map(hour => {
+                    const value = heatmapData?.[dayIndex]?.[hour] || 0;
                     return (
                       <div
                         key={`${day}-${hour}`}
-                        className="aspect-square rounded"
+                        className="aspect-square rounded-sm transition-colors duration-200"
                         style={{
-                          backgroundColor: `rgba(34, 197, 94, ${intensity})`,
-                          transition: 'background-color 0.3s'
+                          backgroundColor: getColorIntensity(value),
+                          cursor: 'pointer',
                         }}
-                        title={data ? `${data.value} jobs` : '0 jobs'}
+                        title={`${day} ${hour}:00 - ${value} jobs`}
                       />
                     );
                   })}
                 </div>
               ))}
+
+              {/* Legend */}
+              <div className="mt-4 flex items-center justify-end space-x-2">
+                <span className="text-xs text-muted-foreground">Less</span>
+                <div className="flex h-2">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="w-8 h-full"
+                      style={{
+                        backgroundColor: getColorIntensity((i + 1) * (maxValue / 5)),
+                      }}
+                    />
+                  ))}
+                </div>
+                <span className="text-xs text-muted-foreground">More</span>
+              </div>
             </div>
           </div>
         </CardContent>
