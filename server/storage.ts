@@ -2,9 +2,12 @@ import {
   type Order,
   type Product,
   type Job,
+  type JobBatch,
   type InsertOrder,
   type InsertProduct,
-  type InsertJob
+  type InsertJob,
+  type InsertJobBatch,
+  type JobSummary
 } from "@shared/schema";
 
 export interface IStorage {
@@ -27,18 +30,28 @@ export interface IStorage {
   createJob(job: InsertJob): Promise<Job>;
   updateJob(id: number, job: Partial<Job>): Promise<Job>;
   listJobs(): Promise<Job[]>;
+  getJob(id: number): Promise<Job | undefined>;
+  getJobSummary(id: number): Promise<JobSummary>;
+
+  // Job Batches
+  createJobBatch(batch: InsertJobBatch): Promise<JobBatch>;
+  updateJobBatch(id: number, batch: Partial<JobBatch>): Promise<JobBatch>;
+  listJobBatches(jobId: number): Promise<JobBatch[]>;
+  getJobBatch(id: number): Promise<JobBatch | undefined>;
 }
 
 export class MemStorage implements IStorage {
   private orders: Map<number, Order>;
   private products: Map<number, Product>;
   private jobs: Map<number, Job>;
+  private jobBatches: Map<number, JobBatch>;
   private currentId: number;
 
   constructor() {
     this.orders = new Map();
     this.products = new Map();
     this.jobs = new Map();
+    this.jobBatches = new Map();
     this.currentId = 1;
   }
 
@@ -120,8 +133,49 @@ export class MemStorage implements IStorage {
     return Array.from(this.jobs.values());
   }
 
-  private async getJob(id: number): Promise<Job | undefined> {
+  async getJob(id: number): Promise<Job | undefined> {
     return this.jobs.get(id);
+  }
+
+  async getJobSummary(id: number): Promise<JobSummary> {
+    const batches = await this.listJobBatches(id);
+    return {
+      totalBatches: batches.length,
+      successfulBatches: batches.filter(b => b.status === 'completed').length,
+      failedBatches: batches.filter(b => b.status === 'failed').length,
+      totalItems: batches.reduce((sum, b) => sum + (b.itemsProcessed || 0), 0),
+      processedItems: batches.filter(b => b.status === 'completed')
+        .reduce((sum, b) => sum + (b.itemsProcessed || 0), 0),
+      errors: batches.filter(b => b.error)
+        .map(b => b.error!)
+        .filter((err): err is string => !!err),
+      warnings: []
+    };
+  }
+
+  async createJobBatch(batch: InsertJobBatch): Promise<JobBatch> {
+    const id = this.currentId++;
+    const newBatch = { ...batch, id } as JobBatch;
+    this.jobBatches.set(id, newBatch);
+    return newBatch;
+  }
+
+  async updateJobBatch(id: number, batch: Partial<JobBatch>): Promise<JobBatch> {
+    const existing = await this.getJobBatch(id);
+    if (!existing) throw new Error("Job batch not found");
+    const updated = { ...existing, ...batch };
+    this.jobBatches.set(id, updated);
+    return updated;
+  }
+
+  async listJobBatches(jobId: number): Promise<JobBatch[]> {
+    return Array.from(this.jobBatches.values())
+      .filter(batch => batch.jobId === jobId)
+      .sort((a, b) => a.batchNumber - b.batchNumber);
+  }
+
+  async getJobBatch(id: number): Promise<JobBatch | undefined> {
+    return this.jobBatches.get(id);
   }
 }
 

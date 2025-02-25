@@ -4,7 +4,7 @@ import { storage } from "./storage";
 import { addJob, initializeQueue } from "./queue";
 import { z } from "zod";
 import { shopifyClient, TEST_SHOP_QUERY } from "./shopify";
-import { insertOrderSchema, insertProductSchema } from "@shared/schema";
+import { insertOrderSchema, insertProductSchema, type JobConfig } from "@shared/schema";
 
 export async function registerRoutes(app: Express) {
   // Initialize job queue
@@ -107,23 +107,80 @@ export async function registerRoutes(app: Express) {
   app.post("/api/jobs", async (req, res) => {
     try {
       const schema = z.object({
-        type: z.enum(['orders', 'products'])
+        type: z.enum(['orders', 'products']),
+        config: z.object({
+          startDate: z.string().optional(),
+          endDate: z.string().optional(),
+          batchSize: z.number().optional(),
+          includeImages: z.boolean().optional(),
+          includeMetafields: z.boolean().optional()
+        }).optional()
       });
 
-      const { type } = schema.parse(req.body);
+      const { type, config } = schema.parse(req.body);
 
       const job = await storage.createJob({
         type,
         status: 'pending',
         progress: 0,
-        createdAt: new Date()
+        createdAt: new Date(),
+        config: config || undefined
       });
 
-      await addJob(type, job.id);
+      await addJob(type, job.id, config);
 
       res.json(job);
     } catch (error: any) {
       console.error('Job creation error:', error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Job batches
+  app.get("/api/jobs/:jobId/batches", async (req, res) => {
+    try {
+      const batches = await storage.listJobBatches(parseInt(req.params.jobId));
+      res.json(batches);
+    } catch (error: any) {
+      console.error('Job batches fetch error:', error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Job summary and report
+  app.get("/api/jobs/:jobId/summary", async (req, res) => {
+    try {
+      const summary = await storage.getJobSummary(parseInt(req.params.jobId));
+      res.json(summary);
+    } catch (error: any) {
+      console.error('Job summary fetch error:', error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/jobs/:jobId/report", async (req, res) => {
+    try {
+      const jobId = parseInt(req.params.jobId);
+      const [job, batches] = await Promise.all([
+        storage.getJob(jobId),
+        storage.listJobBatches(jobId)
+      ]);
+
+      if (!job) {
+        return res.status(404).json({ message: 'Job not found' });
+      }
+
+      const report = {
+        job: {
+          ...job,
+          summary: await storage.getJobSummary(jobId)
+        },
+        batches: batches.sort((a, b) => a.batchNumber - b.batchNumber)
+      };
+
+      res.json(report);
+    } catch (error: any) {
+      console.error('Job report generation error:', error);
       res.status(500).json({ message: error.message });
     }
   });

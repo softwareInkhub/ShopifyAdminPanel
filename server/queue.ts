@@ -1,8 +1,8 @@
 import Queue from 'bull';
-import { shopifyClient, ORDERS_QUERY, PRODUCTS_QUERY, type OrdersResponse, type ProductsResponse } from './shopify';
+import { shopifyClient, ORDERS_QUERY, PRODUCTS_QUERY, buildOrderDateQuery, type OrdersResponse, type ProductsResponse } from './shopify';
 import { storage } from './storage';
 import { db } from './firebase';
-import type { Job } from '@shared/schema';
+import type { Job, JobConfig } from '@shared/schema';
 
 // In-memory queue for development
 class MemoryQueue {
@@ -42,12 +42,25 @@ class MemoryQueue {
 
 let jobQueue: Queue.Queue | MemoryQueue;
 
-async function processBatch(type: 'orders' | 'products', cursor?: string) {
+async function processBatch(type: 'orders' | 'products', cursor?: string, config?: JobConfig) {
   try {
     console.log(`Processing ${type} batch${cursor ? ` after ${cursor}` : ''}`);
 
     const query = type === 'orders' ? ORDERS_QUERY : PRODUCTS_QUERY;
-    const data = await shopifyClient.request<OrdersResponse | ProductsResponse>(query, { first: 50, after: cursor });
+    const variables: Record<string, any> = { first: config?.batchSize || 50, after: cursor };
+
+    // Add date range filtering for orders
+    if (type === 'orders' && (config?.startDate || config?.endDate)) {
+      const dateQuery = buildOrderDateQuery(
+        config.startDate ? new Date(config.startDate) : undefined,
+        config.endDate ? new Date(config.endDate) : undefined
+      );
+      if (dateQuery) {
+        variables.query = dateQuery;
+      }
+    }
+
+    const data = await shopifyClient.request<OrdersResponse | ProductsResponse>(query, variables);
 
     const edges = type === 'orders' 
       ? (data as OrdersResponse).orders.edges
@@ -60,12 +73,12 @@ async function processBatch(type: 'orders' | 'products', cursor?: string) {
 
     for (const edge of edges) {
       const { node: item } = edge;
-      const cleanId = item.id.replace('gid://shopify/Order/', '').replace('gid://shopify/Product/', '');
+      const cleanId = item.id.replace(`gid://shopify/${type === 'orders' ? 'Order' : 'Product'}/`, '');
       const ref = db.collection(type).doc(cleanId);
       batch.set(ref, item);
 
       if (type === 'orders') {
-        const orderItem = (item as ShopifyOrder);
+        const orderItem = (data as OrdersResponse).orders.edges[0].node;
         storagePromises.push(
           storage.createOrder({
             shopifyId: cleanId,
@@ -77,7 +90,7 @@ async function processBatch(type: 'orders' | 'products', cursor?: string) {
           }).catch(err => console.error(`Failed to store order ${cleanId}:`, err))
         );
       } else {
-        const productItem = (item as ShopifyProduct);
+        const productItem = (data as ProductsResponse).products.edges[0].node;
         storagePromises.push(
           storage.createProduct({
             shopifyId: cleanId,
@@ -103,7 +116,8 @@ async function processBatch(type: 'orders' | 'products', cursor?: string) {
 
     return {
       hasMore: pageInfo.hasNextPage,
-      cursor: pageInfo.endCursor
+      cursor: pageInfo.endCursor,
+      processedCount: edges.length
     };
   } catch (error) {
     console.error(`Error processing ${type} batch:`, error);
@@ -142,34 +156,68 @@ export async function initializeQueue() {
     }
 
     jobQueue.process('sync-shopify', async (job) => {
-      const { type, jobId } = job.data;
-      let processed = 0;
+      const { type, jobId, config } = job.data;
+      let batchNumber = 1;
       let cursor: string | undefined;
       let hasMore = true;
+      let totalProcessed = 0;
 
       try {
         while (hasMore) {
-          const result = await processBatch(type, cursor);
-          hasMore = result.hasMore;
-          cursor = result.cursor;
-          processed += 50;
+          // Create batch record
+          const batch = await storage.createJobBatch({
+            jobId,
+            batchNumber,
+            status: 'processing',
+            startedAt: new Date(),
+            request: { cursor, config }
+          });
 
-          const progress = Math.min(processed, 100);
-          await job.progress(progress);
+          try {
+            const result = await processBatch(type, cursor, config);
+            hasMore = result.hasMore;
+            cursor = result.cursor;
+            totalProcessed += result.processedCount;
 
-          await storage.updateJob(jobId, {
-            progress,
-            status: 'processing'
-          }).catch(err => console.error(`Failed to update job ${jobId}:`, err));
+            // Update batch record
+            await storage.updateJobBatch(batch.id, {
+              status: 'completed',
+              completedAt: new Date(),
+              itemsProcessed: result.processedCount,
+              response: result
+            });
 
-          // Rate limiting
-          await new Promise(resolve => setTimeout(resolve, 1000));
+            // Update job progress
+            const progress = Math.min(Math.round((totalProcessed / (totalProcessed + (hasMore ? 50 : 0))) * 100), 100);
+            await job.progress(progress);
+
+            await storage.updateJob(jobId, {
+              progress,
+              status: 'processing',
+              processedItems: totalProcessed
+            });
+
+            batchNumber++;
+
+            // Rate limiting delay
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          } catch (error: any) {
+            await storage.updateJobBatch(batch.id, {
+              status: 'failed',
+              completedAt: new Date(),
+              error: error.message
+            });
+            throw error;
+          }
         }
 
+        // Complete job
         await storage.updateJob(jobId, {
           status: 'completed',
           progress: 100,
-          completedAt: new Date()
+          completedAt: new Date(),
+          totalItems: totalProcessed,
+          processedItems: totalProcessed
         });
 
       } catch (error: any) {
@@ -190,7 +238,7 @@ export async function initializeQueue() {
   }
 }
 
-export async function addJob(type: 'orders' | 'products', jobId: number) {
+export async function addJob(type: 'orders' | 'products', jobId: number, config?: JobConfig) {
   if (!jobQueue) {
     const initialized = await initializeQueue();
     if (!initialized) {
@@ -198,10 +246,9 @@ export async function addJob(type: 'orders' | 'products', jobId: number) {
     }
   }
 
-  return jobQueue.add('sync-shopify', { type, jobId });
+  return jobQueue.add('sync-shopify', { type, jobId, config });
 }
 
-//Necessary type definitions (assuming these exist in your project)
 type ShopifyOrder = {
   id: string;
   displayFulfillmentStatus: string;
