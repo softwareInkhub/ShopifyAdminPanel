@@ -29,6 +29,7 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area"; // Import ScrollArea
 
 interface TransformationRule {
   id: string;
@@ -43,6 +44,26 @@ interface TransformationRule {
   condition?: string;
   customLogic?: string;
 }
+
+// Placeholder for apiRequest function
+const apiRequest = async (method: string, url: string, data: any) => {
+  // Replace with your actual API request logic
+  console.log(`Making ${method} request to ${url} with data:`, data);
+  return Promise.resolve(); // Or reject with an error
+};
+
+// Placeholder for TransformationRuleEditor component
+const TransformationRuleEditor = ({ sourceSchema, targetSchema, onSave, onExecute }: any) => {
+  // Replace with your actual component implementation
+  return (
+    <div>
+      <p>Source Schema: {sourceSchema}</p>
+      <p>Target Schema: {targetSchema}</p>
+      <Button onClick={onExecute}>Execute Transformation</Button>
+    </div>
+  );
+};
+
 
 export default function SchemaManager() {
   const [selectedSchema, setSelectedSchema] = useState<'product' | 'order'>('product');
@@ -191,13 +212,31 @@ export default function SchemaManager() {
                     New Rule
                   </Button>
                 </DialogTrigger>
-                <DialogContent className="max-w-4xl">
+                <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden">
                   <DialogHeader>
                     <DialogTitle>Create Transformation Rule</DialogTitle>
                   </DialogHeader>
-                  {/*  A more complete form would be needed here for creating rules */}
-                  <Textarea placeholder="Enter Transformation Rule Details (JSON)" />
-                  <Button onClick={() => {/*Save the transformation rule*/}}>Save Rule</Button>
+                  <ScrollArea className="max-h-[calc(80vh-8rem)]">
+                    <TransformationRuleEditor 
+                      sourceSchema={selectedSchema === 'product' ? updatedSchemas.order : updatedSchemas.product}
+                      targetSchema={selectedSchema === 'product' ? updatedSchemas.product : updatedSchemas.order}
+                      onSave={handleSaveTransformationRule}
+                      onExecute={async (rule) => {
+                        try {
+                          await apiRequest('POST', '/api/jobs', {
+                            type: 'transform',
+                            rule: rule
+                          });
+                          toast({ title: "Transformation job started" });
+                        } catch (error) {
+                          toast({ 
+                            title: "Failed to start transformation job",
+                            variant: "destructive"
+                          });
+                        }
+                      }}
+                    />
+                  </ScrollArea>
                 </DialogContent>
               </Dialog>
             </div>

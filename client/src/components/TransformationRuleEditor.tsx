@@ -17,10 +17,11 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import JsonPathViewer from './JsonPathViewer';
 
 type TransformationType = 'increment' | 'decrement' | 'sum' | 'count' | 'custom';
-type TriggerEvent = 'onCreate' | 'onUpdate' | 'onDelete';
+type TriggerEvent = 'onCreate' | 'onUpdate' | 'onDelete' | 'onDemand';
 
 interface TransformationRule {
   id: string;
@@ -40,6 +41,7 @@ interface TransformationRuleEditorProps {
   sourceSchema: any;
   targetSchema: any;
   onSave: (rule: TransformationRule) => void;
+  onExecute?: (rule: TransformationRule) => void;
 }
 
 const PRESET_RULES = {
@@ -59,7 +61,8 @@ const PRESET_RULES = {
 export default function TransformationRuleEditor({
   sourceSchema,
   targetSchema,
-  onSave
+  onSave,
+  onExecute
 }: TransformationRuleEditorProps) {
   const [rule, setRule] = useState<Partial<TransformationRule>>({
     transformationType: 'increment',
@@ -77,7 +80,8 @@ export default function TransformationRuleEditor({
   const triggerEvents = [
     { value: 'onCreate', label: 'On Create' },
     { value: 'onUpdate', label: 'On Update' },
-    { value: 'onDelete', label: 'On Delete' }
+    { value: 'onDelete', label: 'On Delete' },
+    { value: 'onDemand', label: 'On Demand (Manual/Job)' }
   ];
 
   const handleSave = () => {
@@ -92,6 +96,12 @@ export default function TransformationRuleEditor({
 
   const applyPreset = (preset: typeof PRESET_RULES.orderCountIncrement) => {
     setRule(preset);
+  };
+
+  const handleExecuteTransformation = () => {
+    if (onExecute && rule.name && rule.sourcePath && rule.targetPath) {
+      onExecute(rule as TransformationRule);
+    }
   };
 
   return (
@@ -180,7 +190,7 @@ export default function TransformationRuleEditor({
               <Input
                 value={rule.targetPath || ''}
                 onChange={(e) => setRule(prev => ({ ...prev, targetPath: e.target.value }))}
-                placeholder="e.g., product.totalOrderCount"
+                placeholder="e.g., totalOrderCount"
               />
             </div>
           </div>
@@ -251,7 +261,14 @@ export default function TransformationRuleEditor({
             />
           </div>
 
-          <Button onClick={handleSave}>Save Transformation Rule</Button>
+          <div className="flex gap-2">
+            <Button onClick={handleSave}>Save Transformation Rule</Button>
+            {rule.triggerEvent === 'onDemand' && (
+              <Button variant="outline" onClick={handleExecuteTransformation}>
+                Execute Transformation
+              </Button>
+            )}
+          </div>
         </CardContent>
       </Card>
 
@@ -261,7 +278,9 @@ export default function TransformationRuleEditor({
             <CardTitle>Source Schema</CardTitle>
           </CardHeader>
           <CardContent>
-            <JsonPathViewer data={sourceSchema} />
+            <ScrollArea className="h-[400px]">
+              <JsonPathViewer data={sourceSchema} />
+            </ScrollArea>
           </CardContent>
         </Card>
 
@@ -270,7 +289,9 @@ export default function TransformationRuleEditor({
             <CardTitle>Target Schema</CardTitle>
           </CardHeader>
           <CardContent>
-            <JsonPathViewer data={targetSchema} />
+            <ScrollArea className="h-[400px]">
+              <JsonPathViewer data={targetSchema} />
+            </ScrollArea>
           </CardContent>
         </Card>
       </div>
