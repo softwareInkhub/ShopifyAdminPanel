@@ -91,8 +91,19 @@ export async function registerRoutes(app: Express) {
   // Products
   app.get("/api/products", async (req, res) => {
     try {
+      const { search } = req.query;
       const products = await storage.listProducts();
-      res.json(products);
+
+      // Apply search filter if provided
+      const filteredProducts = search
+        ? products.filter(product => 
+            product.title.toLowerCase().includes(search.toString().toLowerCase()) ||
+            product.description.toLowerCase().includes(search.toString().toLowerCase())
+          )
+        : products;
+
+      console.log(`Returning ${filteredProducts.length} filtered products`);
+      res.json(filteredProducts);
     } catch (error: any) {
       console.error('Products fetch error:', error);
       res.status(500).json({ message: error.message });
@@ -101,7 +112,10 @@ export async function registerRoutes(app: Express) {
 
   app.post("/api/products", async (req, res) => {
     try {
-      const product = await storage.createProduct(req.body);
+      // Validate product data
+      const productData = insertProductSchema.parse(req.body);
+      const product = await storage.createProduct(productData);
+      console.log('Created new product:', product);
       res.json(product);
     } catch (error: any) {
       console.error('Product creation error:', error);
@@ -112,6 +126,7 @@ export async function registerRoutes(app: Express) {
   app.patch("/api/products/:id", async (req, res) => {
     try {
       const product = await storage.updateProduct(parseInt(req.params.id), req.body);
+      console.log('Updated product:', product);
       res.json(product);
     } catch (error: any) {
       console.error('Product update error:', error);
@@ -122,6 +137,7 @@ export async function registerRoutes(app: Express) {
   app.delete("/api/products/:id", async (req, res) => {
     try {
       await storage.deleteProduct(parseInt(req.params.id));
+      console.log('Deleted product:', req.params.id);
       res.status(204).end();
     } catch (error: any) {
       console.error('Product deletion error:', error);
