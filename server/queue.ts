@@ -4,55 +4,80 @@ import { storage } from './storage';
 import { db } from './firebase';
 import type { Job } from '@shared/schema';
 
-// Queue configuration with better error handling
-let jobQueue: Queue.Queue | null = null;
+// In-memory queue for development
+class MemoryQueue {
+  private jobs: Map<string, any>;
+  private handlers: Map<string, Function>;
+
+  constructor() {
+    this.jobs = new Map();
+    this.handlers = new Map();
+  }
+
+  async add(name: string, data: any) {
+    const jobId = Date.now().toString();
+    this.jobs.set(jobId, data);
+
+    if (this.handlers.has(name)) {
+      try {
+        await this.handlers.get(name)!({
+          data,
+          progress: async (n: number) => console.log(`Job ${jobId} progress: ${n}%`)
+        });
+      } catch (error) {
+        console.error(`Job ${jobId} failed:`, error);
+      }
+    }
+    return { id: jobId };
+  }
+
+  process(name: string, handler: Function) {
+    this.handlers.set(name, handler);
+  }
+
+  on(event: string, handler: Function) {
+    // Stub event handlers
+  }
+}
+
+let jobQueue: Queue.Queue | MemoryQueue;
 
 export async function initializeQueue() {
   try {
-    jobQueue = new Queue('shopify-sync', {
-      redis: {
-        port: 6379,
-        host: '127.0.0.1',
-        maxRetriesPerRequest: 3,
-        retryStrategy: (times) => {
-          if (times > 3) {
-            console.error('Redis connection failed after 3 retries');
-            return null; // Stop retrying
+    if (process.env.NODE_ENV === 'production') {
+      jobQueue = new Queue('shopify-sync', {
+        redis: {
+          port: 6379,
+          host: '127.0.0.1',
+          maxRetriesPerRequest: 3,
+          retryStrategy: (times) => {
+            if (times > 3) {
+              console.error('Redis connection failed after 3 retries');
+              return null;
+            }
+            return Math.min(times * 1000, 3000);
           }
-          return Math.min(times * 1000, 3000);
-        },
-        enableReadyCheck: false
-      },
-      defaultJobOptions: {
-        attempts: 3,
-        backoff: {
-          type: 'exponential',
-          delay: 2000
-        },
-        removeOnComplete: 100,
-        removeOnFail: false
-      }
-    });
+        }
+      });
 
-    // Set up event handlers
-    jobQueue.on('error', (error) => {
-      console.error('Queue error:', error);
-    });
+      jobQueue.on('error', (error) => {
+        console.error('Queue error:', error);
+      });
 
-    jobQueue.on('failed', (job, err) => {
-      console.error(`Job ${job.id} failed with error:`, err);
-    });
+      jobQueue.on('failed', (job, err) => {
+        console.error(`Job ${job.id} failed:`, err);
+      });
+    } else {
+      console.log('Using in-memory queue for development');
+      jobQueue = new MemoryQueue();
+    }
 
-    jobQueue.on('stalled', (job) => {
-      console.warn(`Job ${job.id} is stalled`);
-    });
-
-    // Process jobs
+    // Common job processing logic
     jobQueue.process('sync-shopify', async (job) => {
-      const { type, jobId } = job.data as { type: 'orders' | 'products', jobId: number };
-      let hasMore = true;
-      let cursor: string | undefined;
+      const { type, jobId } = job.data;
       let processed = 0;
+      let cursor: string | undefined;
+      let hasMore = true;
 
       try {
         while (hasMore) {
@@ -61,16 +86,15 @@ export async function initializeQueue() {
           cursor = result.cursor;
           processed += 50;
 
-          // Update progress
           const progress = Math.min(processed, 100);
           await job.progress(progress);
 
           await storage.updateJob(jobId, {
             progress,
             status: 'processing'
-          }).catch(err => console.error(`Failed to update job ${jobId} progress:`, err));
+          }).catch(err => console.error(`Failed to update job ${jobId}:`, err));
 
-          // Rate limiting delay
+          // Rate limiting
           await new Promise(resolve => setTimeout(resolve, 1000));
         }
 
@@ -79,9 +103,9 @@ export async function initializeQueue() {
           progress: 100,
           completedAt: new Date()
         });
+
       } catch (error: any) {
         console.error(`Error in ${type} sync job ${jobId}:`, error);
-
         await storage.updateJob(jobId, {
           status: 'failed',
           error: error.message
@@ -111,7 +135,6 @@ async function processBatch(type: 'orders' | 'products', cursor?: string) {
 
     console.log(`Retrieved ${items.length} ${type}`);
 
-    // Batch operations
     const batch = db.batch();
     const storagePromises = [];
 
@@ -164,5 +187,5 @@ export async function addJob(type: 'orders' | 'products', jobId: number) {
     }
   }
 
-  return jobQueue!.add('sync-shopify', { type, jobId });
+  return jobQueue.add('sync-shopify', { type, jobId });
 }
