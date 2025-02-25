@@ -180,6 +180,21 @@ export async function registerRoutes(app: Express) {
     }
   });
 
+  // Add this new route after the existing products routes
+  app.get("/api/products/:id", async (req, res) => {
+    try {
+      const product = await storage.getProduct(parseInt(req.params.id));
+      if (!product) {
+        return res.status(404).json({ message: 'Product not found' });
+      }
+      console.log('Fetched product:', product.id);
+      res.json(product);
+    } catch (error: any) {
+      console.error('Product fetch error:', error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // Jobs
   app.get("/api/jobs", async (req, res) => {
     try {

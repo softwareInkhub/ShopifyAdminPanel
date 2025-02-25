@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import Sidebar from "@/components/layout/Sidebar";
 import Orders from "@/pages/orders";
 import Products from "@/pages/products";
+import ProductDetail from "@/pages/product-detail";
 import Jobs from "@/pages/jobs";
 import Analytics from "@/pages/analytics";
 import NotFound from "@/pages/not-found";
@@ -17,6 +18,7 @@ function Router() {
         <Switch>
           <Route path="/orders" component={Orders} />
           <Route path="/products" component={Products} />
+          <Route path="/products/:id" component={ProductDetail} />
           <Route path="/jobs" component={Jobs} />
           <Route path="/analytics" component={Analytics} />
           <Route component={NotFound} />
