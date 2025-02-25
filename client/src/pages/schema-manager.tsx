@@ -17,10 +17,12 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import TransformationRuleEditor from '@/components/TransformationRuleEditor';
+import type { TransformationRule } from '@shared/schemas/transformations';
+import { sampleTransformationRules } from '@shared/schemas/transformations';
 import { useToast } from "@/hooks/use-toast";
-import { Download, Upload, Save, Plus } from "lucide-react";
+import { Download, Upload, Plus } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import {
   Tabs,
@@ -29,9 +31,6 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import TransformationRuleEditor from '@/components/TransformationRuleEditor';
-import type { TransformationRule } from '@shared/schemas/transformations';
 
 // Placeholder for apiRequest function
 const apiRequest = async (method: string, url: string, data: any) => {
@@ -42,8 +41,7 @@ const apiRequest = async (method: string, url: string, data: any) => {
 
 export default function SchemaManager() {
   const [selectedSchema, setSelectedSchema] = useState<'product' | 'order'>('product');
-  const [templates, setTemplates] = useState<Record<string, any>>({});
-  const [transformationRules, setTransformationRules] = useState<TransformationRule[]>([]);
+  const [transformationRules, setTransformationRules] = useState<TransformationRule[]>(sampleTransformationRules);
   const [updatedSchemas, setUpdatedSchemas] = useState({
     product: productSchema,
     order: orderSchema
@@ -87,23 +85,6 @@ export default function SchemaManager() {
     }
   };
 
-  const handleSaveTemplate = (name: string, template: string) => {
-    try {
-      const templateObj = JSON.parse(template);
-      setTemplates(prev => ({
-        ...prev,
-        [name]: templateObj
-      }));
-      toast({ title: "Template saved successfully" });
-    } catch (error) {
-      toast({ 
-        title: "Failed to save template",
-        description: "Invalid JSON format",
-        variant: "destructive"
-      });
-    }
-  };
-
   const handleSchemaChange = (schema: any) => {
     setUpdatedSchemas(prev => ({
       ...prev,
@@ -115,6 +96,21 @@ export default function SchemaManager() {
   const handleSaveTransformationRule = (rule: TransformationRule) => {
     setTransformationRules(prev => [...prev, rule]);
     toast({ title: "Transformation rule saved successfully" });
+  };
+
+  const handleExecuteRule = async (rule: TransformationRule) => {
+    try {
+      await apiRequest('POST', '/api/jobs', {
+        type: 'transform',
+        rule: rule
+      });
+      toast({ title: "Transformation job started" });
+    } catch (error) {
+      toast({ 
+        title: "Failed to start transformation job",
+        variant: "destructive"
+      });
+    }
   };
 
   return (
@@ -166,7 +162,6 @@ export default function SchemaManager() {
         <TabsList>
           <TabsTrigger value="schema">Schema Editor</TabsTrigger>
           <TabsTrigger value="transformations">Transformation Rules</TabsTrigger>
-          <TabsTrigger value="templates">Templates</TabsTrigger>
         </TabsList>
 
         <TabsContent value="schema">
@@ -196,20 +191,7 @@ export default function SchemaManager() {
                       sourceSchema={selectedSchema === 'product' ? updatedSchemas.order : updatedSchemas.product}
                       targetSchema={selectedSchema === 'product' ? updatedSchemas.product : updatedSchemas.order}
                       onSave={handleSaveTransformationRule}
-                      onExecute={async (rule) => {
-                        try {
-                          await apiRequest('POST', '/api/jobs', {
-                            type: 'transform',
-                            rule: rule
-                          });
-                          toast({ title: "Transformation job started" });
-                        } catch (error) {
-                          toast({ 
-                            title: "Failed to start transformation job",
-                            variant: "destructive"
-                          });
-                        }
-                      }}
+                      onExecute={handleExecuteRule}
                     />
                   </ScrollArea>
                 </DialogContent>
@@ -220,55 +202,59 @@ export default function SchemaManager() {
               {transformationRules.map(rule => (
                 <Card key={rule.id}>
                   <CardHeader>
-                    <CardTitle className="flex justify-between items-center">
-                      <span>{rule.name}</span>
-                      <Badge variant="outline">{rule.triggerEvent}</Badge>
-                    </CardTitle>
-                    <CardDescription>{rule.description}</CardDescription>
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <CardTitle>{rule.name}</CardTitle>
+                        <CardDescription>{rule.description}</CardDescription>
+                      </div>
+                      <div className="flex gap-2">
+                        <Badge variant="outline">{rule.transformationType}</Badge>
+                        <Badge>{rule.triggerEvent}</Badge>
+                      </div>
+                    </div>
                   </CardHeader>
                   <CardContent>
                     <div className="grid grid-cols-2 gap-4 text-sm">
                       <div>
-                        <p className="font-medium">Source</p>
-                        <p>{rule.sourceSchema} → {rule.sourcePath}</p>
+                        <p className="font-medium mb-1">Source</p>
+                        <p className="flex items-center gap-2">
+                          <Badge variant="outline">{rule.sourceSchema}</Badge>
+                          <span>→</span>
+                          <code className="px-2 py-1 bg-muted rounded">{rule.sourcePath}</code>
+                        </p>
                       </div>
                       <div>
-                        <p className="font-medium">Target</p>
-                        <p>{rule.targetSchema} → {rule.targetPath}</p>
+                        <p className="font-medium mb-1">Target</p>
+                        <p className="flex items-center gap-2">
+                          <Badge variant="outline">{rule.targetSchema}</Badge>
+                          <span>→</span>
+                          <code className="px-2 py-1 bg-muted rounded">{rule.targetPath}</code>
+                        </p>
                       </div>
                       {rule.condition && (
                         <div className="col-span-2">
-                          <p className="font-medium">Condition</p>
-                          <pre className="bg-muted p-2 rounded-md">{rule.condition}</pre>
+                          <p className="font-medium mb-1">Condition</p>
+                          <pre className="bg-muted p-2 rounded text-sm">{rule.condition}</pre>
                         </div>
                       )}
                       {rule.customLogic && (
                         <div className="col-span-2">
-                          <p className="font-medium">Custom Logic</p>
-                          <pre className="bg-muted p-2 rounded-md">{rule.customLogic}</pre>
+                          <p className="font-medium mb-1">Custom Logic</p>
+                          <pre className="bg-muted p-2 rounded text-sm">{rule.customLogic}</pre>
                         </div>
                       )}
                     </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="templates">
-          <div className="space-y-4">
-            <h2 className="text-2xl font-bold">Saved Templates</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {Object.entries(templates).map(([name, template]) => (
-                <Card key={name}>
-                  <CardHeader>
-                    <CardTitle>{name}</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <pre className="bg-muted p-4 rounded-lg text-xs overflow-auto max-h-[200px]">
-                      {JSON.stringify(template, null, 2)}
-                    </pre>
+                    {rule.triggerEvent === 'onDemand' && (
+                      <div className="mt-4">
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => handleExecuteRule(rule)}
+                        >
+                          Execute Rule
+                        </Button>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               ))}
