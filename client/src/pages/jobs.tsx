@@ -59,9 +59,9 @@ export default function Jobs() {
       return jobsWithBatches;
     },
     // Refresh more frequently when jobs are running
-    refetchInterval: (data) => {
-      const hasRunningJobs = data?.some(job => job.status === 'processing' || job.status === 'pending');
-      return hasRunningJobs ? 1000 : false;
+    refetchInterval: (data: JobWithBatches[] | undefined) => {
+      if (!data || !Array.isArray(data)) return false;
+      return data.some(job => job.status === 'processing' || job.status === 'pending') ? 1000 : false;
     }
   });
 
@@ -75,7 +75,7 @@ export default function Jobs() {
       return res.json();
     },
     enabled: !!selectedJob,
-    refetchInterval: (data, query) => {
+    refetchInterval: () => {
       const job = jobs?.find(j => j.id === selectedJob);
       return job?.status === 'processing' ? 1000 : false;
     }

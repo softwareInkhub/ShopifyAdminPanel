@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'wouter';
-import { Package, ShoppingCart, Activity } from 'lucide-react';
+import { Package, ShoppingCart, Activity, BarChart } from 'lucide-react';
 
 export default function Sidebar() {
   const [location] = useLocation();
@@ -7,7 +7,8 @@ export default function Sidebar() {
   const links = [
     { href: '/orders', label: 'Orders', icon: ShoppingCart },
     { href: '/products', label: 'Products', icon: Package },
-    { href: '/jobs', label: 'Jobs', icon: Activity }
+    { href: '/jobs', label: 'Jobs', icon: Activity },
+    { href: '/analytics', label: 'Analytics', icon: BarChart }
   ];
 
   return (

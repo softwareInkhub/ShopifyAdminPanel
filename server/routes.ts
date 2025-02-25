@@ -185,6 +185,58 @@ export async function registerRoutes(app: Express) {
     }
   });
 
+  // Analytics endpoints
+  app.get("/api/analytics", async (req, res) => {
+    try {
+      const range = req.query.range as string || '7d';
+      const days = parseInt(range.replace('d', ''));
+
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+
+      // Get all jobs within the time range
+      const jobs = await storage.listJobs();
+      const recentJobs = jobs.filter(job => new Date(job.createdAt) >= startDate);
+
+      // Calculate analytics
+      const analytics = {
+        totalJobs: recentJobs.length,
+        completedJobs: recentJobs.filter(j => j.status === 'completed').length,
+        failedJobs: recentJobs.filter(j => j.status === 'failed').length,
+        jobsByType: recentJobs.reduce((acc, job) => {
+          acc[job.type] = (acc[job.type] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>),
+        dailyActivity: {} as Record<string, number>,
+        successRate: 0,
+        averageProcessingTime: 0
+      };
+
+      // Calculate success rate
+      analytics.successRate = (analytics.completedJobs / analytics.totalJobs) * 100 || 0;
+
+      // Calculate average processing time
+      const completedWithTime = recentJobs.filter(j => j.completedAt && j.status === 'completed');
+      if (completedWithTime.length > 0) {
+        const totalTime = completedWithTime.reduce((sum, job) => {
+          return sum + (new Date(job.completedAt!).getTime() - new Date(job.createdAt).getTime());
+        }, 0);
+        analytics.averageProcessingTime = (totalTime / completedWithTime.length) / 1000; // Convert to seconds
+      }
+
+      // Build activity heatmap data
+      recentJobs.forEach(job => {
+        const timestamp = new Date(job.createdAt).getTime();
+        analytics.dailyActivity[timestamp] = (analytics.dailyActivity[timestamp] || 0) + 1;
+      });
+
+      res.json(analytics);
+    } catch (error: any) {
+      console.error('Analytics generation error:', error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
