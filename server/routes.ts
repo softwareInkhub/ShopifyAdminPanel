@@ -88,19 +88,45 @@ export async function registerRoutes(app: Express) {
     }
   });
 
-  // Products
+  // Products with enhanced filtering and validation
   app.get("/api/products", async (req, res) => {
     try {
-      const { search } = req.query;
+      const { search, category, status, minPrice, maxPrice } = req.query;
       const products = await storage.listProducts();
 
-      // Apply search filter if provided
-      const filteredProducts = search
-        ? products.filter(product => 
-            product.title.toLowerCase().includes(search.toString().toLowerCase()) ||
-            product.description.toLowerCase().includes(search.toString().toLowerCase())
-          )
-        : products;
+      // Apply filters
+      const filteredProducts = products.filter(product => {
+        let matches = true;
+
+        // Search filter
+        if (search) {
+          const searchStr = search.toString().toLowerCase();
+          matches = matches && (
+            (product.title?.toLowerCase().includes(searchStr) || false) ||
+            (product.description?.toLowerCase().includes(searchStr) || false)
+          );
+        }
+
+        // Category filter
+        if (category && category !== "All") {
+          matches = matches && product.category === category;
+        }
+
+        // Status filter
+        if (status && status !== "all") {
+          matches = matches && product.status === status;
+        }
+
+        // Price range filter
+        if (minPrice) {
+          matches = matches && parseFloat(product.price) >= parseFloat(minPrice.toString());
+        }
+        if (maxPrice) {
+          matches = matches && parseFloat(product.price) <= parseFloat(maxPrice.toString());
+        }
+
+        return matches;
+      });
 
       console.log(`Returning ${filteredProducts.length} filtered products`);
       res.json(filteredProducts);

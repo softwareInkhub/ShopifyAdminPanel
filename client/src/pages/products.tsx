@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Pencil, Trash, RefreshCw, Search } from "lucide-react";
+import { 
+  Plus, Pencil, Trash, RefreshCw, Search, 
+  Filter, ArrowUpDown, Check, Copy 
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -17,25 +20,67 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { type Product } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+
+const PRODUCT_CATEGORIES = [
+  "All",
+  "Electronics",
+  "Clothing",
+  "Books",
+  "Home & Garden",
+  "Sports",
+  "Other"
+];
 
 export default function Products() {
   const { toast } = useToast();
   const [editProduct, setEditProduct] = useState<Product | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [selectedProducts, setSelectedProducts] = useState<number[]>([]);
+  const [filters, setFilters] = useState({
+    category: "All",
+    status: "all",
+    priceRange: { min: "", max: "" }
+  });
 
   // Fetch products
   const { data: products, isLoading } = useQuery<Product[]>({
-    queryKey: ['/api/products', search],
+    queryKey: ['/api/products', search, filters],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (search) params.append('search', search);
+      if (filters.category !== "All") params.append('category', filters.category);
+      if (filters.status !== "all") params.append('status', filters.status);
+      if (filters.priceRange.min) params.append('minPrice', filters.priceRange.min);
+      if (filters.priceRange.max) params.append('maxPrice', filters.priceRange.max);
+
       const res = await fetch(`/api/products?${params}`);
       if (!res.ok) throw new Error('Failed to fetch products');
       return res.json();
@@ -65,6 +110,35 @@ export default function Products() {
         title: "Failed to sync products",
         variant: "destructive"
       });
+    }
+  });
+
+  // Batch operations mutations
+  const batchUpdateMutation = useMutation({
+    mutationFn: async ({ ids, data }: { ids: number[], data: Partial<Product> }) => {
+      const promises = ids.map(id => 
+        apiRequest('PATCH', `/api/products/${id}`, data)
+      );
+      await Promise.all(promises);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/products'] });
+      setSelectedProducts([]);
+      toast({ title: "Products updated successfully" });
+    }
+  });
+
+  const batchDeleteMutation = useMutation({
+    mutationFn: async (ids: number[]) => {
+      const promises = ids.map(id => 
+        apiRequest('DELETE', `/api/products/${id}`)
+      );
+      await Promise.all(promises);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/products'] });
+      setSelectedProducts([]);
+      toast({ title: "Products deleted successfully" });
     }
   });
 
@@ -101,6 +175,7 @@ export default function Products() {
     }
   });
 
+
   // Calculate statistics
   const stats = products ? {
     total: products.length,
@@ -109,6 +184,23 @@ export default function Products() {
     avgPrice: products.length ? 
       products.reduce((sum, p) => sum + parseFloat(p.price), 0) / products.length : 0
   } : null;
+
+  // Handle bulk selection
+  const handleSelectAll = () => {
+    if (selectedProducts.length === products?.length) {
+      setSelectedProducts([]);
+    } else {
+      setSelectedProducts(products?.map(p => p.id) || []);
+    }
+  };
+
+  const handleSelectProduct = (id: number) => {
+    setSelectedProducts(prev => 
+      prev.includes(id) 
+        ? prev.filter(p => p !== id)
+        : [...prev, id]
+    );
+  };
 
   return (
     <div className="p-8 space-y-6">
@@ -145,6 +237,7 @@ export default function Products() {
                   title: formData.get('title') as string,
                   description: formData.get('description') as string,
                   price: formData.get('price') as string,
+                  category: formData.get('category') as string,
                   status: 'active'
                 };
 
@@ -174,6 +267,18 @@ export default function Products() {
                     defaultValue={editProduct?.price || ''}
                     required
                   />
+                  <Select name="category" defaultValue={editProduct?.category || 'Other'}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PRODUCT_CATEGORIES.filter(c => c !== "All").map(category => (
+                        <SelectItem key={category} value={category}>
+                          {category}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <Button 
                     type="submit" 
                     disabled={createMutation.isPending || updateMutation.isPending}
@@ -229,24 +334,141 @@ export default function Products() {
         </Card>
       </div>
 
-      {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          placeholder="Search products..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="pl-10"
-        />
+      {/* Filters and Search */}
+      <div className="flex flex-col sm:flex-row gap-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search products..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-10"
+          />
+        </div>
+        <Select 
+          value={filters.category}
+          onValueChange={(value) => setFilters(prev => ({ ...prev, category: value }))}
+        >
+          <SelectTrigger className="w-48">
+            <SelectValue placeholder="Category" />
+          </SelectTrigger>
+          <SelectContent>
+            {PRODUCT_CATEGORIES.map(category => (
+              <SelectItem key={category} value={category}>
+                {category}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select
+          value={filters.status}
+          onValueChange={(value) => setFilters(prev => ({ ...prev, status: value }))}
+        >
+          <SelectTrigger className="w-48">
+            <SelectValue placeholder="Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Status</SelectItem>
+            <SelectItem value="active">Active</SelectItem>
+            <SelectItem value="inactive">Inactive</SelectItem>
+          </SelectContent>
+        </Select>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" className="w-48">
+              <Filter className="mr-2 h-4 w-4" />
+              Price Range
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-80">
+            <div className="grid gap-4">
+              <div className="space-y-2">
+                <h4 className="font-medium leading-none">Price Range</h4>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    placeholder="Min"
+                    value={filters.priceRange.min}
+                    onChange={(e) => setFilters(prev => ({
+                      ...prev,
+                      priceRange: { ...prev.priceRange, min: e.target.value }
+                    }))}
+                  />
+                  <Input
+                    type="number"
+                    placeholder="Max"
+                    value={filters.priceRange.max}
+                    onChange={(e) => setFilters(prev => ({
+                      ...prev,
+                      priceRange: { ...prev.priceRange, max: e.target.value }
+                    }))}
+                  />
+                </div>
+              </div>
+            </div>
+          </PopoverContent>
+        </Popover>
       </div>
+
+      {/* Batch Actions */}
+      {selectedProducts.length > 0 && (
+        <div className="bg-muted/50 p-4 rounded-lg flex items-center justify-between">
+          <span className="text-sm font-medium">
+            {selectedProducts.length} products selected
+          </span>
+          <div className="flex gap-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm">
+                  Bulk Actions
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => batchUpdateMutation.mutate({
+                    ids: selectedProducts,
+                    data: { status: 'active' }
+                  })}
+                >
+                  Set Active
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => batchUpdateMutation.mutate({
+                    ids: selectedProducts,
+                    data: { status: 'inactive' }
+                  })}
+                >
+                  Set Inactive
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="text-destructive"
+                  onClick={() => batchDeleteMutation.mutate(selectedProducts)}
+                >
+                  Delete Selected
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+      )}
 
       {/* Products Table */}
       <div className="border rounded-lg">
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-12">
+                <Checkbox
+                  checked={selectedProducts.length === products?.length}
+                  onCheckedChange={handleSelectAll}
+                />
+              </TableHead>
               <TableHead>Title</TableHead>
               <TableHead>Description</TableHead>
+              <TableHead>Category</TableHead>
               <TableHead>Price</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Actions</TableHead>
@@ -255,14 +477,21 @@ export default function Products() {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center">
+                <TableCell colSpan={7} className="text-center">
                   Loading...
                 </TableCell>
               </TableRow>
             ) : products?.map((product) => (
               <TableRow key={product.id}>
+                <TableCell>
+                  <Checkbox
+                    checked={selectedProducts.includes(product.id)}
+                    onCheckedChange={() => handleSelectProduct(product.id)}
+                  />
+                </TableCell>
                 <TableCell className="font-medium">{product.title}</TableCell>
                 <TableCell>{product.description}</TableCell>
+                <TableCell>{product.category || 'Other'}</TableCell>
                 <TableCell>${product.price}</TableCell>
                 <TableCell>
                   <span className={`px-2 py-1 rounded-full text-xs font-medium
@@ -282,6 +511,17 @@ export default function Products() {
                       }}
                     >
                       <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => {
+                        const data = { ...product };
+                        delete data.id;
+                        createMutation.mutate(data);
+                      }}
+                    >
+                      <Copy className="h-4 w-4" />
                     </Button>
                     <Button
                       variant="destructive"
