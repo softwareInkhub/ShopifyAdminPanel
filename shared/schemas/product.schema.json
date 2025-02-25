@@ -44,6 +44,12 @@
       "enum": ["Electronics", "Clothing", "Books", "Home & Garden", "Sports", "Other", null],
       "description": "Product category"
     },
+    "totalOrderCount": {
+      "type": "integer",
+      "description": "Total number of times this product has been ordered",
+      "default": 0,
+      "minimum": 0
+    },
     "vendor": {
       "type": ["string", "null"],
       "description": "Product vendor/manufacturer"

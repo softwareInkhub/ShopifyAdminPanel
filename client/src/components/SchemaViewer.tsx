@@ -11,11 +11,16 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Copy, Check } from "lucide-react";
+import { Copy, Check, Plus } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { productSchema, orderSchema } from '@shared/schemas';
+import JsonPathViewer from './JsonPathViewer';
+import TransformationRuleEditor from './TransformationRuleEditor';
 
 interface SchemaViewerProps {
   schema: typeof productSchema | typeof orderSchema;
+  onSchemaChange?: (schema: any) => void;
 }
 
 interface SchemaFieldProps {
@@ -94,115 +99,95 @@ const SchemaField: React.FC<SchemaFieldProps> = ({ name, field, required, path }
   );
 };
 
-interface JSONViewerProps {
-  data: any;
-  path?: string;
-}
-
-const JSONViewer: React.FC<JSONViewerProps> = ({ data, path = '' }) => {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopyPath = () => {
-    navigator.clipboard.writeText(path);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  if (typeof data !== 'object' || data === null) {
-    return (
-      <div className="flex items-center gap-2">
-        <span className="text-blue-600">{JSON.stringify(data)}</span>
-        {path && (
-          <Badge 
-            variant="outline" 
-            className="text-[10px] cursor-pointer" 
-            onClick={handleCopyPath}
-          >
-            {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-            {path}
-          </Badge>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="pl-4 border-l border-gray-200">
-      {Object.entries(data).map(([key, value]) => (
-        <div key={key} className="py-1">
-          <div className="flex items-center gap-2">
-            <span className="font-medium">{key}:</span>
-            {typeof value === 'object' && value !== null ? (
-              <Badge 
-                variant="outline" 
-                className="text-[10px] cursor-pointer" 
-                onClick={handleCopyPath}
-              >
-                {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-                {path ? `${path}.${key}` : key}
-              </Badge>
-            ) : null}
-          </div>
-          <JSONViewer 
-            data={value} 
-            path={path ? `${path}.${key}` : key}
-          />
-        </div>
-      ))}
-    </div>
-  );
-};
-
-interface TemplateCreatorProps {
+interface SchemaExtenderProps {
   schema: any;
+  onExtend: (field: any) => void;
 }
 
-const TemplateCreator: React.FC<TemplateCreatorProps> = ({ schema }) => {
-  const [templateName, setTemplateName] = useState('');
-  const [templateValue, setTemplateValue] = useState('');
+const SchemaExtender: React.FC<SchemaExtenderProps> = ({ schema, onExtend }) => {
+  const [newField, setNewField] = useState({
+    name: '',
+    type: 'string',
+    description: '',
+    required: false
+  });
 
-  const generateTemplate = () => {
-    const template = {};
-    const generateForSchema = (schemaObj: any) => {
-      const result: any = {};
-      Object.entries(schemaObj.properties || {}).forEach(([key, value]: [string, any]) => {
-        if (value.type === 'object') {
-          result[key] = generateForSchema(value);
-        } else if (value.type === 'array') {
-          result[key] = [generateForSchema(value.items)];
-        } else {
-          result[key] = `{{${key}}}`;
-        }
-      });
-      return result;
-    };
-
-    const generated = generateForSchema(schema);
-    setTemplateValue(JSON.stringify(generated, null, 2));
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onExtend({
+      [newField.name]: {
+        type: newField.type,
+        description: newField.description
+      }
+    });
+    setNewField({
+      name: '',
+      type: 'string',
+      description: '',
+      required: false
+    });
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex gap-4">
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="space-y-2">
+        <Label>Field Name</Label>
         <Input
-          placeholder="Template Name"
-          value={templateName}
-          onChange={(e) => setTemplateName(e.target.value)}
+          value={newField.name}
+          onChange={(e) => setNewField(prev => ({ ...prev, name: e.target.value }))}
+          placeholder="e.g., totalOrderCount"
         />
-        <Button onClick={generateTemplate}>Generate Template</Button>
       </div>
-      <Textarea
-        placeholder="Template JSON"
-        value={templateValue}
-        onChange={(e) => setTemplateValue(e.target.value)}
-        className="font-mono h-[400px]"
-      />
-    </div>
+
+      <div className="space-y-2">
+        <Label>Field Type</Label>
+        <select
+          className="w-full border rounded-md p-2"
+          value={newField.type}
+          onChange={(e) => setNewField(prev => ({ ...prev, type: e.target.value }))}
+        >
+          <option value="string">String</option>
+          <option value="number">Number</option>
+          <option value="integer">Integer</option>
+          <option value="boolean">Boolean</option>
+          <option value="array">Array</option>
+          <option value="object">Object</option>
+        </select>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Description</Label>
+        <Textarea
+          value={newField.description}
+          onChange={(e) => setNewField(prev => ({ ...prev, description: e.target.value }))}
+          placeholder="Describe the purpose of this field"
+        />
+      </div>
+
+      <Button type="submit">Add Field</Button>
+    </form>
   );
 };
 
-const SchemaViewer: React.FC<SchemaViewerProps> = ({ schema }) => {
+const SchemaViewer: React.FC<SchemaViewerProps> = ({ schema, onSchemaChange }) => {
   const { properties, required = [] } = schema;
+  const [selectedTab, setSelectedTab] = useState('fields');
+
+  const handleExtendSchema = (newField: any) => {
+    const updatedSchema = {
+      ...schema,
+      properties: {
+        ...schema.properties,
+        ...newField
+      }
+    };
+    onSchemaChange?.(updatedSchema);
+  };
+
+  const handleSaveTransformation = (rule: any) => {
+    console.log('Transformation rule saved:', rule);
+    // Here you would typically save the transformation rule to your backend
+  };
 
   return (
     <Card>
@@ -211,11 +196,12 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({ schema }) => {
         <CardDescription>{schema.description}</CardDescription>
       </CardHeader>
       <CardContent>
-        <Tabs defaultValue="fields">
+        <Tabs defaultValue="fields" onValueChange={setSelectedTab}>
           <TabsList>
             <TabsTrigger value="fields">Fields</TabsTrigger>
             <TabsTrigger value="json">JSON Schema</TabsTrigger>
-            <TabsTrigger value="template">Template Creator</TabsTrigger>
+            <TabsTrigger value="extend">Extend Schema</TabsTrigger>
+            <TabsTrigger value="transform">Transformations</TabsTrigger>
           </TabsList>
           <TabsContent value="fields" className="space-y-4">
             {Object.entries(properties).map(([name, field]) => (
@@ -229,10 +215,17 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({ schema }) => {
             ))}
           </TabsContent>
           <TabsContent value="json">
-            <JSONViewer data={schema} />
+            <JsonPathViewer data={schema} />
           </TabsContent>
-          <TabsContent value="template">
-            <TemplateCreator schema={schema} />
+          <TabsContent value="extend">
+            <SchemaExtender schema={schema} onExtend={handleExtendSchema} />
+          </TabsContent>
+          <TabsContent value="transform">
+            <TransformationRuleEditor 
+              sourceSchema={orderSchema} 
+              targetSchema={productSchema}
+              onSave={handleSaveTransformation}
+            />
           </TabsContent>
         </Tabs>
       </CardContent>

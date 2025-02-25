@@ -20,17 +20,42 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { Download, Upload, Save } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Download, Upload, Save, Plus } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
 
+interface TransformationRule {
+  id: string;
+  name: string;
+  description: string;
+  sourceSchema: string;
+  targetSchema: string;
+  sourcePath: string;
+  targetPath: string;
+  transformationType: string;
+  triggerEvent: string;
+  condition?: string;
+  customLogic?: string;
+}
 
 export default function SchemaManager() {
   const [selectedSchema, setSelectedSchema] = useState<'product' | 'order'>('product');
   const [templates, setTemplates] = useState<Record<string, any>>({});
+  const [transformationRules, setTransformationRules] = useState<TransformationRule[]>([]);
+  const [updatedSchemas, setUpdatedSchemas] = useState({
+    product: productSchema,
+    order: orderSchema
+  });
   const { toast } = useToast();
 
   const handleExportSchema = () => {
-    const schema = selectedSchema === 'product' ? productSchema : orderSchema;
+    const schema = selectedSchema === 'product' ? updatedSchemas.product : updatedSchemas.order;
     const blob = new Blob([JSON.stringify(schema, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -49,7 +74,10 @@ export default function SchemaManager() {
       reader.onload = (e) => {
         try {
           const schema = JSON.parse(e.target?.result as string);
-          // Here you would validate and save the schema
+          setUpdatedSchemas(prev => ({
+            ...prev,
+            [selectedSchema]: schema
+          }));
           toast({ title: "Schema imported successfully" });
         } catch (error) {
           toast({ 
@@ -78,6 +106,19 @@ export default function SchemaManager() {
         variant: "destructive"
       });
     }
+  };
+
+  const handleSchemaChange = (schema: any) => {
+    setUpdatedSchemas(prev => ({
+      ...prev,
+      [selectedSchema]: schema
+    }));
+    toast({ title: "Schema updated successfully" });
+  };
+
+  const handleSaveTransformationRule = (rule: TransformationRule) => {
+    setTransformationRules(prev => [...prev, rule]);
+    toast({ title: "Transformation rule saved successfully" });
   };
 
   return (
@@ -125,29 +166,102 @@ export default function SchemaManager() {
         </div>
       </div>
 
-      <div className="grid gap-6">
-        <SchemaViewer 
-          schema={selectedSchema === 'product' ? productSchema : orderSchema} 
-        />
-      </div>
+      <Tabs defaultValue="schema">
+        <TabsList>
+          <TabsTrigger value="schema">Schema Editor</TabsTrigger>
+          <TabsTrigger value="transformations">Transformation Rules</TabsTrigger>
+          <TabsTrigger value="templates">Templates</TabsTrigger>
+        </TabsList>
 
-      <div className="mt-8">
-        <h2 className="text-2xl font-bold mb-4">Saved Templates</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {Object.entries(templates).map(([name, template]) => (
-            <Card key={name}>
-              <CardHeader>
-                <CardTitle>{name}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <pre className="bg-muted p-4 rounded-lg text-xs overflow-auto max-h-[200px]">
-                  {JSON.stringify(template, null, 2)}
-                </pre>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </div>
+        <TabsContent value="schema">
+          <SchemaViewer 
+            schema={selectedSchema === 'product' ? updatedSchemas.product : updatedSchemas.order}
+            onSchemaChange={handleSchemaChange}
+          />
+        </TabsContent>
+
+        <TabsContent value="transformations">
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+              <h2 className="text-2xl font-bold">Transformation Rules</h2>
+              <Dialog>
+                <DialogTrigger asChild>
+                  <Button>
+                    <Plus className="mr-2 h-4 w-4" />
+                    New Rule
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-4xl">
+                  <DialogHeader>
+                    <DialogTitle>Create Transformation Rule</DialogTitle>
+                  </DialogHeader>
+                  {/*  A more complete form would be needed here for creating rules */}
+                  <Textarea placeholder="Enter Transformation Rule Details (JSON)" />
+                  <Button onClick={() => {/*Save the transformation rule*/}}>Save Rule</Button>
+                </DialogContent>
+              </Dialog>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4">
+              {transformationRules.map(rule => (
+                <Card key={rule.id}>
+                  <CardHeader>
+                    <CardTitle className="flex justify-between items-center">
+                      <span>{rule.name}</span>
+                      <Badge variant="outline">{rule.triggerEvent}</Badge>
+                    </CardTitle>
+                    <CardDescription>{rule.description}</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <p className="font-medium">Source</p>
+                        <p>{rule.sourceSchema} → {rule.sourcePath}</p>
+                      </div>
+                      <div>
+                        <p className="font-medium">Target</p>
+                        <p>{rule.targetSchema} → {rule.targetPath}</p>
+                      </div>
+                      {rule.condition && (
+                        <div className="col-span-2">
+                          <p className="font-medium">Condition</p>
+                          <pre className="bg-muted p-2 rounded-md">{rule.condition}</pre>
+                        </div>
+                      )}
+                      {rule.customLogic && (
+                        <div className="col-span-2">
+                          <p className="font-medium">Custom Logic</p>
+                          <pre className="bg-muted p-2 rounded-md">{rule.customLogic}</pre>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="templates">
+          <div className="space-y-4">
+            <h2 className="text-2xl font-bold">Saved Templates</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {Object.entries(templates).map(([name, template]) => (
+                <Card key={name}>
+                  <CardHeader>
+                    <CardTitle>{name}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <pre className="bg-muted p-4 rounded-lg text-xs overflow-auto max-h-[200px]">
+                      {JSON.stringify(template, null, 2)}
+                    </pre>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
