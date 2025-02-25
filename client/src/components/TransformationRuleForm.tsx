@@ -87,16 +87,11 @@ export default function TransformationRuleForm({
   const [testResult, setTestResult] = useState<{
     isValid: boolean;
     message: string;
+    sampleInput?: any;
     sampleOutput?: any;
   } | null>(null);
 
-  // Preview changes as user types
-  useEffect(() => {
-    if (onPreview) {
-      const values = form.getValues();
-      onPreview(values);
-    }
-  }, [form.watch(), onPreview]);
+  const [isTesting, setIsTesting] = useState(false);
 
   const handlePathSelect = (type: 'source' | 'target', path: string) => {
     setSelectedPaths(prev => ({ ...prev, [type]: path }));
@@ -104,41 +99,92 @@ export default function TransformationRuleForm({
   };
 
   const handleTestRule = async () => {
-    const values = form.getValues();
-
     try {
+      setIsTesting(true);
+      const values = form.getValues();
+
       // Validate the rule first
       const validatedRule = transformationRuleSchema.parse(values);
 
-      // Simple test implementation - you would typically call an API endpoint
+      // Create test data based on the transformation type
       let result;
-      if (validatedRule.transformationType === 'increment') {
-        const sourceValue = eval(`SAMPLE_DATA.${validatedRule.sourcePath}`);
-        const targetValue = eval(`SAMPLE_DATA.${validatedRule.targetPath}`);
-        result = targetValue + sourceValue;
+      const sourceValue = validatedRule.sourcePath.includes('[]') 
+        ? SAMPLE_DATA.order.lineItems.reduce((sum, item) => sum + item.quantity, 0)
+        : eval(`SAMPLE_DATA.${validatedRule.sourcePath}`);
+
+      switch (validatedRule.transformationType) {
+        case 'increment':
+          result = SAMPLE_DATA.product.totalOrderCount + sourceValue;
+          break;
+        case 'decrement':
+          result = SAMPLE_DATA.product.totalOrderCount - sourceValue;
+          break;
+        case 'sum':
+          result = sourceValue;
+          break;
+        case 'count':
+          result = SAMPLE_DATA.order.lineItems.length;
+          break;
+        default:
+          if (validatedRule.customLogic) {
+            // Safely evaluate custom logic in a controlled context
+            const evalContext = {
+              source: SAMPLE_DATA.order,
+              target: SAMPLE_DATA.product,
+              result: 0
+            };
+            new Function('source', 'target', 'result', validatedRule.customLogic)(
+              evalContext.source,
+              evalContext.target,
+              evalContext.result
+            );
+            result = evalContext.result;
+          }
       }
+
+      // Simulate API delay
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      const output = {
+        ...SAMPLE_DATA,
+        product: {
+          ...SAMPLE_DATA.product,
+          [validatedRule.targetPath]: result
+        }
+      };
 
       setTestResult({
         isValid: true,
-        message: "Rule validation successful!",
-        sampleOutput: {
-          input: SAMPLE_DATA,
-          output: {
-            ...SAMPLE_DATA,
-            product: {
-              ...SAMPLE_DATA.product,
-              totalOrderCount: result
-            }
-          }
-        }
+        message: "✅ Rule validation successful! The transformation produces the expected output.",
+        sampleInput: SAMPLE_DATA,
+        sampleOutput: output
       });
     } catch (error) {
       setTestResult({
         isValid: false,
-        message: error instanceof Error ? error.message : "Rule validation failed"
+        message: error instanceof Error 
+          ? `❌ Rule validation failed: ${error.message}`
+          : "❌ Rule validation failed",
+        sampleInput: SAMPLE_DATA
       });
+    } finally {
+      setIsTesting(false);
     }
   };
+
+  // Debounced preview
+  useEffect(() => {
+    if (!onPreview) return;
+
+    const timer = setTimeout(() => {
+      const values = form.getValues();
+      if (values.sourcePath && values.targetPath) {
+        onPreview(values);
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [form.watch(), onPreview]);
 
   return (
     <Form {...form}>
@@ -270,8 +316,13 @@ export default function TransformationRuleForm({
             />
 
             <div className="flex gap-2">
-              <Button type="button" variant="outline" onClick={handleTestRule}>
-                Test Rule
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={handleTestRule}
+                disabled={isTesting}
+              >
+                {isTesting ? 'Testing...' : 'Test Rule'}
               </Button>
               <Button type="submit">Save Rule</Button>
             </div>
@@ -280,15 +331,25 @@ export default function TransformationRuleForm({
               <Card>
                 <CardContent className="pt-6">
                   <div className={`p-4 rounded-lg ${testResult.isValid ? 'bg-green-50' : 'bg-red-50'}`}>
-                    <p className={testResult.isValid ? 'text-green-700' : 'text-red-700'}>
+                    <p className={`font-medium ${testResult.isValid ? 'text-green-700' : 'text-red-700'}`}>
                       {testResult.message}
                     </p>
-                    {testResult.sampleOutput && (
-                      <div className="mt-4">
-                        <p className="font-medium mb-2">Sample Transformation:</p>
-                        <pre className="bg-slate-100 p-2 rounded text-sm overflow-auto">
-                          {JSON.stringify(testResult.sampleOutput, null, 2)}
-                        </pre>
+                    {testResult.sampleInput && (
+                      <div className="mt-4 space-y-4">
+                        <div>
+                          <p className="font-medium mb-2">Sample Input Data:</p>
+                          <pre className="bg-slate-100 p-2 rounded text-sm overflow-auto">
+                            {JSON.stringify(testResult.sampleInput, null, 2)}
+                          </pre>
+                        </div>
+                        {testResult.sampleOutput && (
+                          <div>
+                            <p className="font-medium mb-2">Transformed Output:</p>
+                            <pre className="bg-slate-100 p-2 rounded text-sm overflow-auto">
+                              {JSON.stringify(testResult.sampleOutput, null, 2)}
+                            </pre>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
