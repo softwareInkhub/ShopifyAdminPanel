@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { productSchema, orderSchema } from '@shared/schemas';
 import SchemaViewer from '@/components/SchemaViewer';
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { 
   Select,
   SelectContent,
