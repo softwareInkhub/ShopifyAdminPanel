@@ -1,5 +1,5 @@
 import Queue from 'bull';
-import { shopifyClient, ORDERS_QUERY, PRODUCTS_QUERY, buildOrderDateQuery, type OrdersResponse, type ProductsResponse } from './shopify';
+import { shopifyClient, ORDERS_QUERY, PRODUCTS_QUERY, buildOrderDateQuery } from './shopify';
 import { storage } from './storage';
 import { db } from './firebase';
 import type { Job, JobConfig } from '@shared/schema';
@@ -47,7 +47,10 @@ async function processBatch(type: 'orders' | 'products', cursor?: string, config
     console.log(`Processing ${type} batch${cursor ? ` after ${cursor}` : ''}`);
 
     const query = type === 'orders' ? ORDERS_QUERY : PRODUCTS_QUERY;
-    const variables: Record<string, any> = { first: config?.batchSize || 50, after: cursor };
+    const variables: Record<string, any> = {
+      first: config?.batchSize || 50,
+      after: cursor
+    };
 
     // Add date range filtering for orders
     if (type === 'orders' && (config?.startDate || config?.endDate)) {
@@ -60,11 +63,10 @@ async function processBatch(type: 'orders' | 'products', cursor?: string, config
       }
     }
 
-    const data = await shopifyClient.request<OrdersResponse | ProductsResponse>(query, variables);
+    console.log('Sending GraphQL request with variables:', variables);
 
-    const edges = type === 'orders' 
-      ? (data as OrdersResponse).orders.edges
-      : (data as ProductsResponse).products.edges;
+    const data = await shopifyClient.request(query, variables);
+    const edges = type === 'orders' ? data.orders.edges : data.products.edges;
 
     console.log(`Retrieved ${edges.length} ${type}`);
 
@@ -78,28 +80,26 @@ async function processBatch(type: 'orders' | 'products', cursor?: string, config
       batch.set(ref, item);
 
       if (type === 'orders') {
-        const orderItem = (data as OrdersResponse).orders.edges[0].node;
         storagePromises.push(
           storage.createOrder({
             shopifyId: cleanId,
-            status: orderItem.displayFulfillmentStatus,
-            customerEmail: orderItem.email,
-            totalPrice: orderItem.totalPriceSet.shopMoney.amount,
-            createdAt: new Date(orderItem.createdAt),
-            rawData: orderItem
+            status: item.displayFulfillmentStatus,
+            customerEmail: item.email,
+            totalPrice: item.totalPriceSet.shopMoney.amount,
+            createdAt: new Date(item.createdAt),
+            rawData: item
           }).catch(err => console.error(`Failed to store order ${cleanId}:`, err))
         );
       } else {
-        const productItem = (data as ProductsResponse).products.edges[0].node;
         storagePromises.push(
           storage.createProduct({
             shopifyId: cleanId,
-            title: productItem.title,
-            description: productItem.description,
-            price: productItem.priceRangeV2.minVariantPrice.amount,
-            status: productItem.status,
-            createdAt: new Date(productItem.createdAt),
-            rawData: productItem
+            title: item.title,
+            description: item.description,
+            price: item.priceRangeV2.minVariantPrice.amount,
+            status: item.status,
+            createdAt: new Date(item.createdAt),
+            rawData: item
           }).catch(err => console.error(`Failed to store product ${cleanId}:`, err))
         );
       }
@@ -110,18 +110,26 @@ async function processBatch(type: 'orders' | 'products', cursor?: string, config
       ...storagePromises
     ]);
 
-    const pageInfo = type === 'orders' 
-      ? (data as OrdersResponse).orders.pageInfo
-      : (data as ProductsResponse).products.pageInfo;
+    const pageInfo = type === 'orders' ? data.orders.pageInfo : data.products.pageInfo;
 
     return {
       hasMore: pageInfo.hasNextPage,
       cursor: pageInfo.endCursor,
-      processedCount: edges.length
+      processedCount: edges.length,
+      request: variables,
+      response: { edges: edges.map(edge => ({ ...edge.node, id: edge.node.id.split('/').pop() })) }
     };
-  } catch (error) {
+  } catch (error: any) {
     console.error(`Error processing ${type} batch:`, error);
-    throw error;
+    // Enhanced error details for GraphQL errors
+    const errorDetails = error.response?.errors
+      ? error.response.errors.map((e: any) => ({
+          message: e.message,
+          path: e.path,
+          extensions: e.extensions
+        }))
+      : error.message;
+    throw new Error(JSON.stringify(errorDetails));
   }
 }
 
@@ -184,7 +192,8 @@ export async function initializeQueue() {
               status: 'completed',
               completedAt: new Date(),
               itemsProcessed: result.processedCount,
-              response: result
+              request: result.request,
+              response: result.response
             });
 
             // Update job progress
@@ -248,22 +257,3 @@ export async function addJob(type: 'orders' | 'products', jobId: number, config?
 
   return jobQueue.add('sync-shopify', { type, jobId, config });
 }
-
-type ShopifyOrder = {
-  id: string;
-  displayFulfillmentStatus: string;
-  email: string;
-  totalPriceSet: { shopMoney: { amount: number } };
-  createdAt: string;
-  // ... other order properties
-};
-
-type ShopifyProduct = {
-  id: string;
-  title: string;
-  description: string;
-  priceRangeV2: { minVariantPrice: { amount: number } };
-  status: string;
-  createdAt: string;
-  // ... other product properties
-};
