@@ -6,10 +6,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import TransformationRuleForm from './TransformationRuleForm';
+import JsonPathViewer from './JsonPathViewer';
 import { type TransformationRule } from '@shared/schemas/transformations';
 import { useToast } from "@/hooks/use-toast";
-
 
 interface TransformationRuleEditorProps {
   sourceSchema: any;
