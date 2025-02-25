@@ -1,12 +1,20 @@
 import type { Express } from "express";
 import { createServer } from "http";
 import { storage } from "./storage";
-import { jobQueue } from "./queue";
+import { addJob, initializeQueue } from "./queue";
 import { z } from "zod";
 import { shopifyClient, TEST_SHOP_QUERY } from "./shopify";
 import { insertOrderSchema, insertProductSchema } from "@shared/schema";
 
 export async function registerRoutes(app: Express) {
+  // Initialize job queue
+  try {
+    await initializeQueue();
+    console.log('Job queue initialized');
+  } catch (error) {
+    console.error('Failed to initialize job queue:', error);
+  }
+
   // Test Shopify connection
   app.get("/api/test-connection", async (_req, res) => {
     try {
@@ -111,7 +119,7 @@ export async function registerRoutes(app: Express) {
         createdAt: new Date()
       });
 
-      await jobQueue.add('sync-shopify', { type, jobId: job.id });
+      await addJob(type, job.id);
 
       res.json(job);
     } catch (error: any) {
