@@ -151,12 +151,21 @@ export async function registerRoutes(app: Express) {
 
   app.patch("/api/products/:id", async (req, res) => {
     try {
-      const product = await storage.updateProduct(parseInt(req.params.id), req.body);
+      // Validate the incoming data
+      const productData = insertProductSchema.partial().parse(req.body);
+
+      // Update the product
+      const product = await storage.updateProduct(parseInt(req.params.id), productData);
       console.log('Updated product:', product);
+
+      // Return the updated product
       res.json(product);
     } catch (error: any) {
       console.error('Product update error:', error);
-      res.status(500).json({ message: error.message });
+      res.status(500).json({ 
+        message: error.message,
+        details: error instanceof z.ZodError ? error.errors : undefined
+      });
     }
   });
 

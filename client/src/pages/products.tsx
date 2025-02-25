@@ -153,7 +153,7 @@ export default function Products() {
     }
   });
 
-  // Update product mutation
+  // Update product mutation with proper cache invalidation
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: number; data: Partial<Product> }) =>
       apiRequest('PATCH', `/api/products/${id}`, data),
@@ -162,6 +162,13 @@ export default function Products() {
       toast({ title: "Product updated successfully" });
       setIsDialogOpen(false);
       setEditProduct(null);
+    },
+    onError: (error) => {
+      toast({ 
+        title: "Failed to update product", 
+        description: error.message,
+        variant: "destructive" 
+      });
     }
   });
 
@@ -238,7 +245,7 @@ export default function Products() {
                   description: formData.get('description') as string,
                   price: formData.get('price') as string,
                   category: formData.get('category') as string,
-                  status: 'active'
+                  status: formData.get('status') as string || 'active'
                 };
 
                 if (editProduct) {
@@ -279,11 +286,24 @@ export default function Products() {
                       ))}
                     </SelectContent>
                   </Select>
+                  <Select name="status" defaultValue={editProduct?.status || 'active'}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="active">Active</SelectItem>
+                      <SelectItem value="inactive">Inactive</SelectItem>
+                    </SelectContent>
+                  </Select>
                   <Button 
                     type="submit" 
                     disabled={createMutation.isPending || updateMutation.isPending}
                   >
-                    {editProduct ? 'Update' : 'Create'}
+                    {editProduct ? (
+                      updateMutation.isPending ? 'Updating...' : 'Update'
+                    ) : (
+                      createMutation.isPending ? 'Creating...' : 'Create'
+                    )}
                   </Button>
                 </div>
               </form>
