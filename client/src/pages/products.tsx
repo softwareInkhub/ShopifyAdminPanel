@@ -26,6 +26,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 export default function Products() {
   const { toast } = useToast();
   const [editProduct, setEditProduct] = useState<Product | null>(null);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
 
   const { data: products, isLoading } = useQuery<Product[]>({
     queryKey: ['/api/products'],
@@ -42,6 +43,7 @@ export default function Products() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/products'] });
       toast({ title: "Product created successfully" });
+      setIsDialogOpen(false);
     }
   });
 
@@ -51,6 +53,8 @@ export default function Products() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/products'] });
       toast({ title: "Product updated successfully" });
+      setIsDialogOpen(false);
+      setEditProduct(null);
     }
   });
 
@@ -67,9 +71,12 @@ export default function Products() {
     <div className="p-8">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold">Products</h1>
-        <Dialog>
+        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
-            <Button>
+            <Button onClick={() => {
+              setEditProduct(null);
+              setIsDialogOpen(true);
+            }}>
               <Plus className="mr-2 h-4 w-4" />
               Add Product
             </Button>
@@ -86,7 +93,8 @@ export default function Products() {
               const data = {
                 title: formData.get('title') as string,
                 description: formData.get('description') as string,
-                price: formData.get('price') as string
+                price: formData.get('price') as string,
+                status: 'active'
               };
 
               if (editProduct) {
@@ -99,21 +107,26 @@ export default function Products() {
                 <Input
                   name="title"
                   placeholder="Product Title"
-                  defaultValue={editProduct?.title}
+                  defaultValue={editProduct?.title || ''}
+                  required
                 />
                 <Textarea
                   name="description"
                   placeholder="Product Description"
-                  defaultValue={editProduct?.description}
+                  defaultValue={editProduct?.description || ''}
                 />
                 <Input
                   name="price"
                   type="number"
                   step="0.01"
                   placeholder="Price"
-                  defaultValue={editProduct?.price}
+                  defaultValue={editProduct?.price || ''}
+                  required
                 />
-                <Button type="submit">
+                <Button 
+                  type="submit" 
+                  disabled={createMutation.isPending || updateMutation.isPending}
+                >
                   {editProduct ? 'Update' : 'Create'}
                 </Button>
               </div>
@@ -133,7 +146,13 @@ export default function Products() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {products?.map((product) => (
+            {isLoading ? (
+              <TableRow>
+                <TableCell colSpan={4} className="text-center">
+                  Loading...
+                </TableCell>
+              </TableRow>
+            ) : products?.map((product) => (
               <TableRow key={product.id}>
                 <TableCell>{product.title}</TableCell>
                 <TableCell>{product.description}</TableCell>
@@ -143,7 +162,10 @@ export default function Products() {
                     <Button
                       variant="outline"
                       size="icon"
-                      onClick={() => setEditProduct(product)}
+                      onClick={() => {
+                        setEditProduct(product);
+                        setIsDialogOpen(true);
+                      }}
                     >
                       <Pencil className="h-4 w-4" />
                     </Button>
