@@ -13,7 +13,7 @@ function validateShopifyCredentials() {
 validateShopifyCredentials();
 
 // Create Shopify GraphQL client
-const endpoint = `https://${process.env.SHOPIFY_SHOP_URL}/admin/api/2024-01/graphql.json`;
+const endpoint = `https://${process.env.SHOPIFY_SHOP_URL.trim()}/admin/api/2024-01/graphql.json`;
 
 export const shopifyClient = new GraphQLClient(endpoint, {
   headers: {

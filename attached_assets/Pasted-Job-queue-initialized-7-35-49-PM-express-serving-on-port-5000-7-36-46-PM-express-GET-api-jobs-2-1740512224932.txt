@@ -1,0 +1,48 @@
+Job queue initialized
+7:35:49 PM [express] serving on port 5000
+7:36:46 PM [express] GET /api/jobs 200 in 2ms :: []
+Processing products batch
+Error processing products batch: TypeError: Invalid URL
+    at new URL (node:internal/url:806:29)
+    at <anonymous> (/home/runner/workspace/node_modules/graphql-request/src/legacy/helpers/runRequest.ts:167:13)
+    at runRequest (/home/runner/workspace/node_modules/graphql-request/src/legacy/helpers/runRequest.ts:72:31)
+    at GraphQLClient.request (/home/runner/workspace/node_modules/graphql-request/src/legacy/classes/GraphQLClient.ts:131:28)
+    at processBatch (/home/runner/workspace/server/queue.ts:130:38)
+    at <anonymous> (/home/runner/workspace/server/queue.ts:84:32)
+    at MemoryQueue.add (/home/runner/workspace/server/queue.ts:23:37)
+    at addJob (/home/runner/workspace/server/queue.ts:190:19)
+    at <anonymous> (/home/runner/workspace/server/routes.ts:122:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5) {
+  code: 'ERR_INVALID_URL',
+  input: 'https:// ink7.myshopify.com/admin/api/2024-01/graphql.json'
+}
+Error in products sync job 1: TypeError: Invalid URL
+    at new URL (node:internal/url:806:29)
+    at <anonymous> (/home/runner/workspace/node_modules/graphql-request/src/legacy/helpers/runRequest.ts:167:13)
+    at runRequest (/home/runner/workspace/node_modules/graphql-request/src/legacy/helpers/runRequest.ts:72:31)
+    at GraphQLClient.request (/home/runner/workspace/node_modules/graphql-request/src/legacy/classes/GraphQLClient.ts:131:28)
+    at processBatch (/home/runner/workspace/server/queue.ts:130:38)
+    at <anonymous> (/home/runner/workspace/server/queue.ts:84:32)
+    at MemoryQueue.add (/home/runner/workspace/server/queue.ts:23:37)
+    at addJob (/home/runner/workspace/server/queue.ts:190:19)
+    at <anonymous> (/home/runner/workspace/server/routes.ts:122:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5) {
+  code: 'ERR_INVALID_URL',
+  input: 'https:// ink7.myshopify.com/admin/api/2024-01/graphql.json'
+}
+Job 1740512207324 failed: TypeError: Invalid URL
+    at new URL (node:internal/url:806:29)
+    at <anonymous> (/home/runner/workspace/node_modules/graphql-request/src/legacy/helpers/runRequest.ts:167:13)
+    at runRequest (/home/runner/workspace/node_modules/graphql-request/src/legacy/helpers/runRequest.ts:72:31)
+    at GraphQLClient.request (/home/runner/workspace/node_modules/graphql-request/src/legacy/classes/GraphQLClient.ts:131:28)
+    at processBatch (/home/runner/workspace/server/queue.ts:130:38)
+    at <anonymous> (/home/runner/workspace/server/queue.ts:84:32)
+    at MemoryQueue.add (/home/runner/workspace/server/queue.ts:23:37)
+    at addJob (/home/runner/workspace/server/queue.ts:190:19)
+    at <anonymous> (/home/runner/workspace/server/routes.ts:122:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5) {
+  code: 'ERR_INVALID_URL',
+  input: 'https:// ink7.myshopify.com/admin/api/2024-01/graphql.json'
+}
+7:36:47 PM [express] POST /api/jobs 200 in 27ms :: {"type":"products","status":"pending","progress":…
+7:36:47 PM [express] GET /api/jobs 200 in 1ms :: [{"type":"products","status":"failed","progress":0,…
