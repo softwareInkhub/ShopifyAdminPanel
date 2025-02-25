@@ -11,12 +11,18 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, Package, Tag, Clock, DollarSign } from "lucide-react";
+import { ArrowLeft, Package, Tag, Clock, DollarSign, Share2, Edit, Trash } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
+import { makeShopifyRequest, PRODUCT_DETAIL_QUERY } from "@/lib/shopify";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 export default function ProductDetail() {
   const { id } = useParams<{ id: string }>();
+  const { toast } = useToast();
 
   const { data: product, isLoading } = useQuery<Product>({
     queryKey: ['/api/products', id],
@@ -26,6 +32,36 @@ export default function ProductDetail() {
       return res.json();
     }
   });
+
+  // Fetch detailed Shopify data
+  const { data: shopifyData, isLoading: isLoadingShopify } = useQuery({
+    queryKey: ['shopify', product?.shopifyId],
+    enabled: !!product?.shopifyId,
+    queryFn: async () => {
+      try {
+        const response = await makeShopifyRequest(PRODUCT_DETAIL_QUERY, {
+          id: `gid://shopify/Product/${product?.shopifyId}`
+        });
+        return response.product;
+      } catch (error) {
+        console.error('Failed to fetch Shopify data:', error);
+        return null;
+      }
+    }
+  });
+
+  const handleUpdateProduct = async (data: Partial<Product>) => {
+    try {
+      await apiRequest('PATCH', `/api/products/${id}`, data);
+      queryClient.invalidateQueries({ queryKey: ['/api/products', id] });
+      toast({ title: "Product updated successfully" });
+    } catch (error) {
+      toast({ 
+        title: "Failed to update product",
+        variant: "destructive"
+      });
+    }
+  };
 
   if (isLoading) {
     return (
@@ -67,7 +103,7 @@ export default function ProductDetail() {
           <CardContent className="space-y-6">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1">
-                <label className="text-sm font-medium text-muted-foreground">ID</label>
+                <label className="text-sm font-medium text-muted-foreground">Shopify ID</label>
                 <p className="font-mono">{product.shopifyId}</p>
               </div>
               <div className="space-y-1">
@@ -88,6 +124,45 @@ export default function ProductDetail() {
               <label className="text-sm font-medium text-muted-foreground">Description</label>
               <p className="text-sm">{product.description}</p>
             </div>
+
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => handleUpdateProduct({ status: product.status === 'active' ? 'inactive' : 'active' })}>
+                {product.status === 'active' ? 'Deactivate' : 'Activate'}
+              </Button>
+              <Dialog>
+                <DialogTrigger asChild>
+                  <Button variant="outline">
+                    <Edit className="h-4 w-4 mr-2" />
+                    Edit
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Edit Product</DialogTitle>
+                  </DialogHeader>
+                  <form className="space-y-4" onSubmit={(e) => {
+                    e.preventDefault();
+                    const formData = new FormData(e.currentTarget);
+                    handleUpdateProduct({
+                      title: formData.get('title') as string,
+                      description: formData.get('description') as string,
+                      price: formData.get('price') as string,
+                      category: formData.get('category') as string,
+                    });
+                  }}>
+                    <Input name="title" defaultValue={product.title} placeholder="Title" />
+                    <Input name="description" defaultValue={product.description || ''} placeholder="Description" />
+                    <Input name="price" type="number" step="0.01" defaultValue={product.price} placeholder="Price" />
+                    <Input name="category" defaultValue={product.category || ''} placeholder="Category" />
+                    <Button type="submit">Save Changes</Button>
+                  </form>
+                </DialogContent>
+              </Dialog>
+              <Button variant="outline">
+                <Share2 className="h-4 w-4 mr-2" />
+                Share
+              </Button>
+            </div>
           </CardContent>
         </Card>
 
@@ -95,7 +170,7 @@ export default function ProductDetail() {
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="variants">Variants</TabsTrigger>
             <TabsTrigger value="inventory">Inventory</TabsTrigger>
-            <TabsTrigger value="raw">Raw Data</TabsTrigger>
+            <TabsTrigger value="analytics">Analytics</TabsTrigger>
           </TabsList>
           <TabsContent value="variants" className="space-y-4">
             <Card>
@@ -104,7 +179,7 @@ export default function ProductDetail() {
                 <CardDescription>All available variants of this product</CardDescription>
               </CardHeader>
               <CardContent>
-                {rawData.variants?.edges?.map((edge: any) => (
+                {shopifyData?.variants?.edges?.map((edge: any) => (
                   <div key={edge.node.id} className="p-4 border rounded-lg mb-4">
                     <div className="grid grid-cols-2 gap-4">
                       <div>
@@ -131,7 +206,7 @@ export default function ProductDetail() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {rawData.variants?.edges?.map((edge: any) => (
+                  {shopifyData?.variants?.edges?.map((edge: any) => (
                     <div key={edge.node.id} className="flex items-center justify-between p-4 border rounded-lg">
                       <div>
                         <p className="font-medium">{edge.node.title}</p>
@@ -147,21 +222,40 @@ export default function ProductDetail() {
               </CardContent>
             </Card>
           </TabsContent>
-          <TabsContent value="raw">
+          <TabsContent value="analytics">
             <Card>
               <CardHeader>
-                <CardTitle>Raw Data</CardTitle>
-                <CardDescription>Complete product data from Shopify</CardDescription>
+                <CardTitle>Product Analytics</CardTitle>
+                <CardDescription>Performance metrics and insights</CardDescription>
               </CardHeader>
               <CardContent>
-                <pre className="bg-muted p-4 rounded-lg text-xs overflow-auto">
-                  {JSON.stringify(rawData, null, 2)}
-                </pre>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="p-4 border rounded-lg">
+                    <h3 className="text-sm font-medium text-muted-foreground">Total Sales</h3>
+                    <p className="text-2xl font-bold">$0.00</p>
+                  </div>
+                  <div className="p-4 border rounded-lg">
+                    <h3 className="text-sm font-medium text-muted-foreground">Units Sold</h3>
+                    <p className="text-2xl font-bold">0</p>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
         </Tabs>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Raw Data</CardTitle>
+          <CardDescription>Complete product data from Shopify</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <pre className="bg-muted p-4 rounded-lg text-xs overflow-auto">
+            {JSON.stringify({ ...rawData, ...shopifyData }, null, 2)}
+          </pre>
+        </CardContent>
+      </Card>
     </div>
   );
 }

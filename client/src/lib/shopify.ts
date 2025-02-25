@@ -97,6 +97,74 @@ export const PRODUCTS_QUERY = `
   }
 `;
 
+export const PRODUCT_DETAIL_QUERY = `
+  query($id: ID!) {
+    product(id: $id) {
+      id
+      title
+      description
+      descriptionHtml
+      handle
+      productType
+      vendor
+      status
+      priceRangeV2 {
+        minVariantPrice {
+          amount
+          currencyCode
+        }
+        maxVariantPrice {
+          amount
+          currencyCode
+        }
+      }
+      variants(first: 50) {
+        edges {
+          node {
+            id
+            title
+            sku
+            price
+            compareAtPrice
+            inventoryQuantity
+            selectedOptions {
+              name
+              value
+            }
+            image {
+              url
+              altText
+            }
+          }
+        }
+      }
+      images(first: 10) {
+        edges {
+          node {
+            url
+            altText
+            width
+            height
+          }
+        }
+      }
+      metafields(first: 10) {
+        edges {
+          node {
+            namespace
+            key
+            value
+          }
+        }
+      }
+      onlineStoreUrl
+      tags
+      updatedAt
+      createdAt
+    }
+  }
+`;
+
 // Helper functions for interacting with Shopify API
 export async function makeShopifyRequest<T>(query: string, variables: Record<string, any>): Promise<T> {
   if (!import.meta.env.VITE_SHOPIFY_SHOP_URL || !import.meta.env.VITE_SHOPIFY_ACCESS_TOKEN) {
