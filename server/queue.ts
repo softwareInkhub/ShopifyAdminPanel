@@ -1,5 +1,5 @@
 import Queue from 'bull';
-import { shopifyClient, ORDERS_QUERY, PRODUCTS_QUERY } from './shopify';
+import { shopifyClient, ORDERS_QUERY, PRODUCTS_QUERY, type OrdersResponse, type ProductsResponse } from './shopify';
 import { storage } from './storage';
 import { db } from './firebase';
 import type { Job } from '@shared/schema';
@@ -42,6 +42,75 @@ class MemoryQueue {
 
 let jobQueue: Queue.Queue | MemoryQueue;
 
+async function processBatch(type: 'orders' | 'products', cursor?: string) {
+  try {
+    console.log(`Processing ${type} batch${cursor ? ` after ${cursor}` : ''}`);
+
+    const query = type === 'orders' ? ORDERS_QUERY : PRODUCTS_QUERY;
+    const data = await shopifyClient.request<OrdersResponse | ProductsResponse>(query, { first: 50, after: cursor });
+
+    const edges = type === 'orders' 
+      ? (data as OrdersResponse).orders.edges
+      : (data as ProductsResponse).products.edges;
+
+    console.log(`Retrieved ${edges.length} ${type}`);
+
+    const batch = db.batch();
+    const storagePromises = [];
+
+    for (const edge of edges) {
+      const { node: item } = edge;
+      const cleanId = item.id.replace('gid://shopify/Order/', '').replace('gid://shopify/Product/', '');
+      const ref = db.collection(type).doc(cleanId);
+      batch.set(ref, item);
+
+      if (type === 'orders') {
+        const orderItem = (item as ShopifyOrder);
+        storagePromises.push(
+          storage.createOrder({
+            shopifyId: cleanId,
+            status: orderItem.displayFulfillmentStatus,
+            customerEmail: orderItem.email,
+            totalPrice: orderItem.totalPriceSet.shopMoney.amount,
+            createdAt: new Date(orderItem.createdAt),
+            rawData: orderItem
+          }).catch(err => console.error(`Failed to store order ${cleanId}:`, err))
+        );
+      } else {
+        const productItem = (item as ShopifyProduct);
+        storagePromises.push(
+          storage.createProduct({
+            shopifyId: cleanId,
+            title: productItem.title,
+            description: productItem.description,
+            price: productItem.priceRangeV2.minVariantPrice.amount,
+            status: productItem.status,
+            createdAt: new Date(productItem.createdAt),
+            rawData: productItem
+          }).catch(err => console.error(`Failed to store product ${cleanId}:`, err))
+        );
+      }
+    }
+
+    await Promise.allSettled([
+      batch.commit().catch(err => console.error('Firebase batch write failed:', err)),
+      ...storagePromises
+    ]);
+
+    const pageInfo = type === 'orders' 
+      ? (data as OrdersResponse).orders.pageInfo
+      : (data as ProductsResponse).products.pageInfo;
+
+    return {
+      hasMore: pageInfo.hasNextPage,
+      cursor: pageInfo.endCursor
+    };
+  } catch (error) {
+    console.error(`Error processing ${type} batch:`, error);
+    throw error;
+  }
+}
+
 export async function initializeQueue() {
   try {
     if (process.env.NODE_ENV === 'production') {
@@ -72,7 +141,6 @@ export async function initializeQueue() {
       jobQueue = new MemoryQueue();
     }
 
-    // Common job processing logic
     jobQueue.process('sync-shopify', async (job) => {
       const { type, jobId } = job.data;
       let processed = 0;
@@ -122,63 +190,6 @@ export async function initializeQueue() {
   }
 }
 
-async function processBatch(type: 'orders' | 'products', cursor?: string) {
-  try {
-    console.log(`Processing ${type} batch${cursor ? ` after ${cursor}` : ''}`);
-
-    const query = type === 'orders' ? ORDERS_QUERY : PRODUCTS_QUERY;
-    const data = await shopifyClient.request(query, { first: 50, after: cursor });
-
-    const items = type === 'orders'
-      ? data.orders.edges.map(edge => edge.node)
-      : data.products.edges.map(edge => edge.node);
-
-    console.log(`Retrieved ${items.length} ${type}`);
-
-    const batch = db.batch();
-    const storagePromises = [];
-
-    for (const item of items) {
-      const ref = db.collection(type).doc(item.id);
-      batch.set(ref, item);
-
-      if (type === 'orders') {
-        storagePromises.push(storage.createOrder({
-          shopifyId: item.id,
-          status: item.displayFulfillmentStatus,
-          customerEmail: item.email,
-          totalPrice: item.totalPriceSet.shopMoney.amount,
-          createdAt: new Date(item.createdAt),
-          rawData: item
-        }).catch(err => console.error(`Failed to store order ${item.id}:`, err)));
-      } else {
-        storagePromises.push(storage.createProduct({
-          shopifyId: item.id,
-          title: item.title,
-          description: item.description,
-          price: item.priceRangeV2.minVariantPrice.amount,
-          status: item.status,
-          createdAt: new Date(item.createdAt),
-          rawData: item
-        }).catch(err => console.error(`Failed to store product ${item.id}:`, err)));
-      }
-    }
-
-    await Promise.allSettled([
-      batch.commit().catch(err => console.error('Firebase batch write failed:', err)),
-      ...storagePromises
-    ]);
-
-    return {
-      hasMore: type === 'orders' ? data.orders.pageInfo.hasNextPage : data.products.pageInfo.hasNextPage,
-      cursor: type === 'orders' ? data.orders.pageInfo.endCursor : data.products.pageInfo.endCursor
-    };
-  } catch (error) {
-    console.error(`Error processing ${type} batch:`, error);
-    throw error;
-  }
-}
-
 export async function addJob(type: 'orders' | 'products', jobId: number) {
   if (!jobQueue) {
     const initialized = await initializeQueue();
@@ -189,3 +200,23 @@ export async function addJob(type: 'orders' | 'products', jobId: number) {
 
   return jobQueue.add('sync-shopify', { type, jobId });
 }
+
+//Necessary type definitions (assuming these exist in your project)
+type ShopifyOrder = {
+  id: string;
+  displayFulfillmentStatus: string;
+  email: string;
+  totalPriceSet: { shopMoney: { amount: number } };
+  createdAt: string;
+  // ... other order properties
+};
+
+type ShopifyProduct = {
+  id: string;
+  title: string;
+  description: string;
+  priceRangeV2: { minVariantPrice: { amount: number } };
+  status: string;
+  createdAt: string;
+  // ... other product properties
+};

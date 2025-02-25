@@ -1,6 +1,6 @@
 import { GraphQLClient } from 'graphql-request';
 
-// Validate Shopify credentials
+// Validate and clean Shopify credentials
 function validateShopifyCredentials() {
   if (!process.env.SHOPIFY_SHOP_URL) {
     throw new Error('Missing SHOPIFY_SHOP_URL environment variable');
@@ -12,8 +12,11 @@ function validateShopifyCredentials() {
 
 validateShopifyCredentials();
 
-// Create Shopify GraphQL client
-const endpoint = `https://${process.env.SHOPIFY_SHOP_URL.trim()}/admin/api/2024-01/graphql.json`;
+// Clean and format the shop URL
+const shopUrl = process.env.SHOPIFY_SHOP_URL.trim().replace(/^https?:\/\//, '');
+const endpoint = `https://${shopUrl}/admin/api/2024-01/graphql.json`;
+
+console.log('Initializing Shopify client with endpoint:', endpoint);
 
 export const shopifyClient = new GraphQLClient(endpoint, {
   headers: {
@@ -53,39 +56,8 @@ export const ORDERS_QUERY = `
               currencyCode
             }
           }
-          subtotalPriceSet {
-            shopMoney {
-              amount
-              currencyCode
-            }
-          }
           displayFulfillmentStatus
-          displayFinancialStatus
           createdAt
-          updatedAt
-          customer {
-            firstName
-            lastName
-            email
-          }
-          shippingAddress {
-            address1
-            address2
-            city
-            province
-            country
-            zip
-          }
-          lineItems(first: 10) {
-            edges {
-              node {
-                title
-                quantity
-                originalUnitPrice
-                discountedUnitPrice
-              }
-            }
-          }
         }
       }
     }
@@ -104,47 +76,63 @@ export const PRODUCTS_QUERY = `
         node {
           id
           title
-          handle
           description
-          descriptionHtml
           status
-          totalInventory
-          tracksInventory
           priceRangeV2 {
             minVariantPrice {
               amount
-              currencyCode
-            }
-            maxVariantPrice {
-              amount
-              currencyCode
-            }
-          }
-          images(first: 1) {
-            edges {
-              node {
-                url
-                altText
-              }
-            }
-          }
-          variants(first: 10) {
-            edges {
-              node {
-                id
-                title
-                price
-                compareAtPrice
-                inventoryQuantity
-                sku
-              }
             }
           }
           createdAt
-          updatedAt
-          publishedAt
         }
       }
     }
   }
 `;
+
+// Type definitions for Shopify responses
+export interface ShopifyPageInfo {
+  hasNextPage: boolean;
+  endCursor: string;
+}
+
+export interface ShopifyOrder {
+  id: string;
+  email: string;
+  name: string;
+  totalPriceSet: {
+    shopMoney: {
+      amount: string;
+      currencyCode: string;
+    };
+  };
+  displayFulfillmentStatus: string;
+  createdAt: string;
+}
+
+export interface ShopifyProduct {
+  id: string;
+  title: string;
+  description: string;
+  status: string;
+  priceRangeV2: {
+    minVariantPrice: {
+      amount: string;
+    };
+  };
+  createdAt: string;
+}
+
+export interface OrdersResponse {
+  orders: {
+    pageInfo: ShopifyPageInfo;
+    edges: Array<{ node: ShopifyOrder }>;
+  };
+}
+
+export interface ProductsResponse {
+  products: {
+    pageInfo: ShopifyPageInfo;
+    edges: Array<{ node: ShopifyProduct }>;
+  };
+}
