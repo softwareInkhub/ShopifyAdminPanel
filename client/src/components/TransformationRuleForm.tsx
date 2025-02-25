@@ -48,6 +48,20 @@ const TRIGGER_EVENTS = [
   { value: 'onDemand', label: 'On Demand (Manual/Job)' },
 ];
 
+const SAMPLE_DATA = {
+  order: {
+    id: "12345",
+    lineItems: [
+      { productId: "1", quantity: 2 },
+      { productId: "2", quantity: 3 }
+    ]
+  },
+  product: {
+    id: "1",
+    totalOrderCount: 5
+  }
+};
+
 export default function TransformationRuleForm({
   sourceSchema,
   targetSchema,
@@ -70,6 +84,12 @@ export default function TransformationRuleForm({
     target: initialValues?.targetPath || ''
   });
 
+  const [testResult, setTestResult] = useState<{
+    isValid: boolean;
+    message: string;
+    sampleOutput?: any;
+  } | null>(null);
+
   // Preview changes as user types
   useEffect(() => {
     if (onPreview) {
@@ -81,6 +101,43 @@ export default function TransformationRuleForm({
   const handlePathSelect = (type: 'source' | 'target', path: string) => {
     setSelectedPaths(prev => ({ ...prev, [type]: path }));
     form.setValue(type === 'source' ? 'sourcePath' : 'targetPath', path);
+  };
+
+  const handleTestRule = async () => {
+    const values = form.getValues();
+
+    try {
+      // Validate the rule first
+      const validatedRule = transformationRuleSchema.parse(values);
+
+      // Simple test implementation - you would typically call an API endpoint
+      let result;
+      if (validatedRule.transformationType === 'increment') {
+        const sourceValue = eval(`SAMPLE_DATA.${validatedRule.sourcePath}`);
+        const targetValue = eval(`SAMPLE_DATA.${validatedRule.targetPath}`);
+        result = targetValue + sourceValue;
+      }
+
+      setTestResult({
+        isValid: true,
+        message: "Rule validation successful!",
+        sampleOutput: {
+          input: SAMPLE_DATA,
+          output: {
+            ...SAMPLE_DATA,
+            product: {
+              ...SAMPLE_DATA.product,
+              totalOrderCount: result
+            }
+          }
+        }
+      });
+    } catch (error) {
+      setTestResult({
+        isValid: false,
+        message: error instanceof Error ? error.message : "Rule validation failed"
+      });
+    }
   };
 
   return (
@@ -211,6 +268,33 @@ export default function TransformationRuleForm({
                 </FormItem>
               )}
             />
+
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={handleTestRule}>
+                Test Rule
+              </Button>
+              <Button type="submit">Save Rule</Button>
+            </div>
+
+            {testResult && (
+              <Card>
+                <CardContent className="pt-6">
+                  <div className={`p-4 rounded-lg ${testResult.isValid ? 'bg-green-50' : 'bg-red-50'}`}>
+                    <p className={testResult.isValid ? 'text-green-700' : 'text-red-700'}>
+                      {testResult.message}
+                    </p>
+                    {testResult.sampleOutput && (
+                      <div className="mt-4">
+                        <p className="font-medium mb-2">Sample Transformation:</p>
+                        <pre className="bg-slate-100 p-2 rounded text-sm overflow-auto">
+                          {JSON.stringify(testResult.sampleOutput, null, 2)}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </div>
 
           <div className="space-y-4">
@@ -244,15 +328,6 @@ export default function TransformationRuleForm({
               </CardContent>
             </Card>
           </div>
-        </div>
-
-        <div className="flex justify-end gap-2">
-          <Button type="submit">Save Transformation Rule</Button>
-          {form.watch('triggerEvent') === 'onDemand' && (
-            <Button type="button" variant="outline" onClick={() => onPreview?.(form.getValues())}>
-              Preview Transformation
-            </Button>
-          )}
         </div>
       </form>
     </Form>
