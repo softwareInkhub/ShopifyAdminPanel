@@ -164,7 +164,7 @@ export const ORDERS_QUERY = `
   }
 `;
 
-// Enhanced query for products with complete data
+// Updated products query without the invalid fields
 export const PRODUCTS_QUERY = `
   query($first: Int!, $after: String) {
     products(first: $first, after: $after) {
@@ -209,17 +209,17 @@ export const PRODUCTS_QUERY = `
                 price
                 compareAtPrice
                 position
-                inventoryPolicy
                 inventoryQuantity
-                inventoryManagement
                 weight
                 weightUnit
+                availableForSale
                 requiresShipping
                 taxable
                 barcode
-                option1
-                option2
-                option3
+                selectedOptions {
+                  name
+                  value
+                }
               }
             }
           }
