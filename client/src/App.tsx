@@ -8,6 +8,7 @@ import Products from "@/pages/products";
 import ProductDetail from "@/pages/product-detail";
 import Jobs from "@/pages/jobs";
 import Analytics from "@/pages/analytics";
+import SchemaManager from "@/pages/schema-manager";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -21,6 +22,7 @@ function Router() {
           <Route path="/products/:id" component={ProductDetail} />
           <Route path="/jobs" component={Jobs} />
           <Route path="/analytics" component={Analytics} />
+          <Route path="/schemas" component={SchemaManager} />
           <Route component={NotFound} />
         </Switch>
       </main>

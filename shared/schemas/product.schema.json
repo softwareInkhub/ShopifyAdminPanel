@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Product Schema",
+  "description": "Schema for Shopify products with extended admin panel properties",
+  "type": "object",
+  "required": ["id", "shopifyId", "title", "status", "createdAt"],
+  "properties": {
+    "id": {
+      "type": "integer",
+      "description": "Internal product ID"
+    },
+    "shopifyId": {
+      "type": "string",
+      "description": "Shopify product ID"
+    },
+    "title": {
+      "type": "string",
+      "description": "Product title"
+    },
+    "description": {
+      "type": ["string", "null"],
+      "description": "Product description"
+    },
+    "descriptionHtml": {
+      "type": ["string", "null"],
+      "description": "HTML formatted product description"
+    },
+    "handle": {
+      "type": "string",
+      "description": "URL-friendly product handle"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["active", "inactive", "draft", "archived"],
+      "description": "Product status"
+    },
+    "price": {
+      "type": ["string", "null"],
+      "pattern": "^\\d+\\.?\\d*$",
+      "description": "Product base price"
+    },
+    "category": {
+      "type": ["string", "null"],
+      "enum": ["Electronics", "Clothing", "Books", "Home & Garden", "Sports", "Other", null],
+      "description": "Product category"
+    },
+    "vendor": {
+      "type": ["string", "null"],
+      "description": "Product vendor/manufacturer"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Product tags"
+    },
+    "variants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "price"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "sku": {
+            "type": ["string", "null"]
+          },
+          "price": {
+            "type": "string",
+            "pattern": "^\\d+\\.?\\d*$"
+          },
+          "compareAtPrice": {
+            "type": ["string", "null"],
+            "pattern": "^\\d+\\.?\\d*$"
+          },
+          "inventoryQuantity": {
+            "type": "integer"
+          },
+          "selectedOptions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["name", "value"],
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "images": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "url"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "altText": {
+            "type": ["string", "null"]
+          },
+          "width": {
+            "type": "integer"
+          },
+          "height": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "rawData": {
+      "type": "object",
+      "description": "Raw Shopify data"
+    }
+  }
+}

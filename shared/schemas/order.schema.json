@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Order Schema",
+  "description": "Schema for Shopify orders with extended admin panel properties",
+  "type": "object",
+  "required": ["id", "shopifyId", "status", "totalPrice", "createdAt"],
+  "properties": {
+    "id": {
+      "type": "integer",
+      "description": "Internal order ID"
+    },
+    "shopifyId": {
+      "type": "string",
+      "description": "Shopify order ID"
+    },
+    "name": {
+      "type": "string",
+      "description": "Order name/number"
+    },
+    "email": {
+      "type": "string",
+      "format": "email",
+      "description": "Customer email"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["UNFULFILLED", "FULFILLED", "CANCELLED"],
+      "description": "Order fulfillment status"
+    },
+    "financialStatus": {
+      "type": "string",
+      "enum": ["PENDING", "AUTHORIZED", "PAID", "REFUNDED", "VOIDED"],
+      "description": "Order payment status"
+    },
+    "totalPrice": {
+      "type": "string",
+      "pattern": "^\\d+\\.?\\d*$",
+      "description": "Total order price"
+    },
+    "subtotalPrice": {
+      "type": "string",
+      "pattern": "^\\d+\\.?\\d*$",
+      "description": "Subtotal before tax and shipping"
+    },
+    "totalTax": {
+      "type": "string",
+      "pattern": "^\\d+\\.?\\d*$",
+      "description": "Total tax amount"
+    },
+    "totalShipping": {
+      "type": "string",
+      "pattern": "^\\d+\\.?\\d*$",
+      "description": "Total shipping cost"
+    },
+    "customer": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "firstName": {
+          "type": ["string", "null"]
+        },
+        "lastName": {
+          "type": ["string", "null"]
+        },
+        "email": {
+          "type": "string",
+          "format": "email"
+        },
+        "phone": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "shippingAddress": {
+      "type": "object",
+      "properties": {
+        "address1": {
+          "type": ["string", "null"]
+        },
+        "address2": {
+          "type": ["string", "null"]
+        },
+        "city": {
+          "type": ["string", "null"]
+        },
+        "province": {
+          "type": ["string", "null"]
+        },
+        "country": {
+          "type": ["string", "null"]
+        },
+        "zip": {
+          "type": ["string", "null"]
+        },
+        "phone": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "lineItems": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "quantity", "price"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "variantId": {
+            "type": ["string", "null"]
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "price": {
+            "type": "string",
+            "pattern": "^\\d+\\.?\\d*$"
+          },
+          "sku": {
+            "type": ["string", "null"]
+          },
+          "vendor": {
+            "type": ["string", "null"]
+          }
+        }
+      }
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "note": {
+      "type": ["string", "null"],
+      "description": "Order notes"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "rawData": {
+      "type": "object",
+      "description": "Raw Shopify data"
+    }
+  }
+}
