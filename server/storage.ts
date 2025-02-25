@@ -53,6 +53,7 @@ export class MemStorage implements IStorage {
     this.jobs = new Map();
     this.jobBatches = new Map();
     this.currentId = 1;
+    console.log('MemStorage initialized');
   }
 
   async getOrder(id: number): Promise<Order | undefined> {
@@ -64,7 +65,9 @@ export class MemStorage implements IStorage {
   }
 
   async listOrders(status?: string): Promise<Order[]> {
+    console.log(`Listing orders with status filter: ${status}`);
     const orders = Array.from(this.orders.values());
+    console.log(`Total orders in storage: ${orders.length}`);
     return status ? orders.filter(o => o.status === status) : orders;
   }
 
@@ -72,6 +75,7 @@ export class MemStorage implements IStorage {
     const id = this.currentId++;
     const newOrder = { ...order, id } as Order;
     this.orders.set(id, newOrder);
+    console.log(`Created new order with ID: ${id}`);
     return newOrder;
   }
 

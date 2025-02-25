@@ -30,18 +30,54 @@ export async function registerRoutes(app: Express) {
     }
   });
 
-  // Orders
+  // Orders endpoint with enhanced filtering and error handling
   app.get("/api/orders", async (req, res) => {
+    console.log('Fetching orders with params:', req.query);
     try {
-      const status = req.query.status as string | undefined;
-      const orders = await storage.listOrders(status);
-      res.json(orders);
+      const { status, search, from, to } = req.query;
+
+      // Get all orders first
+      const orders = await storage.listOrders();
+      console.log(`Retrieved ${orders.length} orders from storage`);
+
+      // Apply filters
+      const filteredOrders = orders.filter(order => {
+        let matches = true;
+
+        // Status filter
+        if (status && status !== 'all') {
+          matches = matches && order.status === status;
+        }
+
+        // Search filter
+        if (search) {
+          const searchStr = search.toString().toLowerCase();
+          matches = matches && (
+            order.customerEmail.toLowerCase().includes(searchStr) ||
+            order.shopifyId.toLowerCase().includes(searchStr)
+          );
+        }
+
+        // Date range filter
+        if (from) {
+          matches = matches && new Date(order.createdAt) >= new Date(from.toString());
+        }
+        if (to) {
+          matches = matches && new Date(order.createdAt) <= new Date(to.toString());
+        }
+
+        return matches;
+      });
+
+      console.log(`Returning ${filteredOrders.length} filtered orders`);
+      res.json(filteredOrders);
     } catch (error: any) {
       console.error('Orders fetch error:', error);
       res.status(500).json({ message: error.message });
     }
   });
 
+  // Update order status
   app.patch("/api/orders/:id", async (req, res) => {
     try {
       const order = await storage.updateOrder(parseInt(req.params.id), req.body);
