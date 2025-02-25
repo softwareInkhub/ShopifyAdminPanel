@@ -52,13 +52,46 @@ const apiRequest = async (method: string, url: string, data: any) => {
   return Promise.resolve(); // Or reject with an error
 };
 
-// Placeholder for TransformationRuleEditor component
+// Improved TransformationRuleEditor component
 const TransformationRuleEditor = ({ sourceSchema, targetSchema, onSave, onExecute }: any) => {
-  // Replace with your actual component implementation
+  const [ruleName, setRuleName] = useState('');
+  const [ruleDescription, setRuleDescription] = useState('');
+  const [sourcePath, setSourcePath] = useState('');
+  const [targetPath, setTargetPath] = useState('');
+  const [transformationType, setTransformationType] = useState('');
+  const [triggerEvent, setTriggerEvent] = useState('');
+  const [condition, setCondition] = useState('');
+  const [customLogic, setCustomLogic] = useState('');
+
+
+  const handleSave = () => {
+    const newRule: TransformationRule = {
+      id: crypto.randomUUID(),
+      name: ruleName,
+      description: ruleDescription,
+      sourceSchema: sourceSchema,
+      targetSchema: targetSchema,
+      sourcePath: sourcePath,
+      targetPath: targetPath,
+      transformationType: transformationType,
+      triggerEvent: triggerEvent,
+      condition: condition,
+      customLogic: customLogic,
+    };
+    onSave(newRule);
+  };
+
   return (
     <div>
-      <p>Source Schema: {sourceSchema}</p>
-      <p>Target Schema: {targetSchema}</p>
+      <Input label="Rule Name" value={ruleName} onChange={(e) => setRuleName(e.target.value)} />
+      <Textarea label="Description" value={ruleDescription} onChange={(e) => setRuleDescription(e.target.value)} />
+      <Input label="Source Path" value={sourcePath} onChange={(e) => setSourcePath(e.target.value)} />
+      <Input label="Target Path" value={targetPath} onChange={(e) => setTargetPath(e.target.value)} />
+      <Input label="Transformation Type" value={transformationType} onChange={(e) => setTransformationType(e.target.value)} />
+      <Input label="Trigger Event" value={triggerEvent} onChange={(e) => setTriggerEvent(e.target.value)} />
+      <Textarea label="Condition (optional)" value={condition} onChange={(e) => setCondition(e.target.value)} />
+      <Textarea label="Custom Logic (optional)" value={customLogic} onChange={(e) => setCustomLogic(e.target.value)} />
+      <Button onClick={handleSave}>Save Rule</Button>
       <Button onClick={onExecute}>Execute Transformation</Button>
     </div>
   );

@@ -1,14 +1,4 @@
 import React, { useState } from 'react';
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Card,
   CardContent,
@@ -16,26 +6,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Textarea } from "@/components/ui/textarea";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import JsonPathViewer from './JsonPathViewer';
+import TransformationRuleForm from './TransformationRuleForm';
+import { type TransformationRule } from '@shared/schemas/transformations';
+import { useToast } from "@/hooks/use-toast";
 
-type TransformationType = 'increment' | 'decrement' | 'sum' | 'count' | 'custom';
-type TriggerEvent = 'onCreate' | 'onUpdate' | 'onDelete' | 'onDemand';
-
-interface TransformationRule {
-  id: string;
-  name: string;
-  description: string;
-  sourceSchema: string;
-  targetSchema: string;
-  sourcePath: string;
-  targetPath: string;
-  transformationType: TransformationType;
-  triggerEvent: TriggerEvent;
-  condition?: string;
-  customLogic?: string;
-}
 
 interface TransformationRuleEditorProps {
   sourceSchema: any;
@@ -44,63 +18,46 @@ interface TransformationRuleEditorProps {
   onExecute?: (rule: TransformationRule) => void;
 }
 
-const PRESET_RULES = {
-  orderCountIncrement: {
-    name: "Update Product Order Count",
-    description: "Increment product total order count when a new order is created",
-    sourceSchema: "order",
-    targetSchema: "product",
-    sourcePath: "lineItems[].quantity",
-    targetPath: "totalOrderCount",
-    transformationType: "increment" as TransformationType,
-    triggerEvent: "onCreate" as TriggerEvent,
-    condition: "lineItems.length > 0"
-  }
-};
-
 export default function TransformationRuleEditor({
   sourceSchema,
   targetSchema,
   onSave,
   onExecute
 }: TransformationRuleEditorProps) {
-  const [rule, setRule] = useState<Partial<TransformationRule>>({
-    transformationType: 'increment',
-    triggerEvent: 'onCreate'
-  });
+  const { toast } = useToast();
+  const [previewData, setPreviewData] = useState<any>(null);
 
-  const transformationTypes = [
-    { value: 'increment', label: 'Increment Value' },
-    { value: 'decrement', label: 'Decrement Value' },
-    { value: 'sum', label: 'Sum Values' },
-    { value: 'count', label: 'Count Occurrences' },
-    { value: 'custom', label: 'Custom Logic' }
-  ];
+  const handlePreview = async (rule: Partial<TransformationRule>) => {
+    try {
+      // Here you would typically make an API call to preview the transformation
+      const response = await fetch('/api/transformations/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(rule)
+      });
 
-  const triggerEvents = [
-    { value: 'onCreate', label: 'On Create' },
-    { value: 'onUpdate', label: 'On Update' },
-    { value: 'onDelete', label: 'On Delete' },
-    { value: 'onDemand', label: 'On Demand (Manual/Job)' }
-  ];
+      if (!response.ok) throw new Error('Preview failed');
 
-  const handleSave = () => {
-    if (!rule.name || !rule.sourcePath || !rule.targetPath) {
-      return;
+      const data = await response.json();
+      setPreviewData(data);
+      toast({ title: "Preview generated successfully" });
+    } catch (error) {
+      toast({ 
+        title: "Failed to generate preview",
+        variant: "destructive"
+      });
     }
-    onSave({
-      id: Date.now().toString(),
-      ...rule as TransformationRule
-    });
   };
 
-  const applyPreset = (preset: typeof PRESET_RULES.orderCountIncrement) => {
-    setRule(preset);
-  };
-
-  const handleExecuteTransformation = () => {
-    if (onExecute && rule.name && rule.sourcePath && rule.targetPath) {
-      onExecute(rule as TransformationRule);
+  const handleSubmit = async (values: TransformationRule) => {
+    try {
+      onSave(values);
+      toast({ title: "Transformation rule saved successfully" });
+    } catch (error) {
+      toast({ 
+        title: "Failed to save transformation rule",
+        variant: "destructive"
+      });
     }
   };
 
@@ -113,165 +70,29 @@ export default function TransformationRuleEditor({
             Define how data should be transformed between schemas
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Button 
-              variant="outline" 
-              onClick={() => applyPreset(PRESET_RULES.orderCountIncrement)}
-            >
-              Use Order Count Increment Preset
-            </Button>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Rule Name</Label>
-            <Input
-              value={rule.name || ''}
-              onChange={(e) => setRule(prev => ({ ...prev, name: e.target.value }))}
-              placeholder="e.g., Update Product Order Count"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label>Description</Label>
-            <Textarea
-              value={rule.description || ''}
-              onChange={(e) => setRule(prev => ({ ...prev, description: e.target.value }))}
-              placeholder="Describe what this transformation does"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Source Schema</Label>
-              <Select
-                value={rule.sourceSchema}
-                onValueChange={(value) => setRule(prev => ({ ...prev, sourceSchema: value }))}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select source schema" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="order">Order Schema</SelectItem>
-                  <SelectItem value="product">Product Schema</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Target Schema</Label>
-              <Select
-                value={rule.targetSchema}
-                onValueChange={(value) => setRule(prev => ({ ...prev, targetSchema: value }))}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select target schema" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="order">Order Schema</SelectItem>
-                  <SelectItem value="product">Product Schema</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Source Path</Label>
-              <Input
-                value={rule.sourcePath || ''}
-                onChange={(e) => setRule(prev => ({ ...prev, sourcePath: e.target.value }))}
-                placeholder="e.g., lineItems[].quantity"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Target Path</Label>
-              <Input
-                value={rule.targetPath || ''}
-                onChange={(e) => setRule(prev => ({ ...prev, targetPath: e.target.value }))}
-                placeholder="e.g., totalOrderCount"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Transformation Type</Label>
-              <Select
-                value={rule.transformationType}
-                onValueChange={(value: TransformationType) => 
-                  setRule(prev => ({ ...prev, transformationType: value }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select type" />
-                </SelectTrigger>
-                <SelectContent>
-                  {transformationTypes.map(type => (
-                    <SelectItem key={type.value} value={type.value}>
-                      {type.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Trigger Event</Label>
-              <Select
-                value={rule.triggerEvent}
-                onValueChange={(value: TriggerEvent) => 
-                  setRule(prev => ({ ...prev, triggerEvent: value }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select event" />
-                </SelectTrigger>
-                <SelectContent>
-                  {triggerEvents.map(event => (
-                    <SelectItem key={event.value} value={event.value}>
-                      {event.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {rule.transformationType === 'custom' && (
-            <div className="space-y-2">
-              <Label>Custom Logic</Label>
-              <Textarea
-                value={rule.customLogic || ''}
-                onChange={(e) => setRule(prev => ({ ...prev, customLogic: e.target.value }))}
-                placeholder="Write your custom transformation logic here"
-                className="font-mono"
-              />
-            </div>
-          )}
-
-          <div className="space-y-2">
-            <Label>Condition (Optional)</Label>
-            <Textarea
-              value={rule.condition || ''}
-              onChange={(e) => setRule(prev => ({ ...prev, condition: e.target.value }))}
-              placeholder="Add a condition for when this transformation should be applied"
-              className="font-mono"
-            />
-          </div>
-
-          <div className="flex gap-2">
-            <Button onClick={handleSave}>Save Transformation Rule</Button>
-            {rule.triggerEvent === 'onDemand' && (
-              <Button variant="outline" onClick={handleExecuteTransformation}>
-                Execute Transformation
-              </Button>
-            )}
-          </div>
+        <CardContent>
+          <TransformationRuleForm
+            sourceSchema={sourceSchema}
+            targetSchema={targetSchema}
+            onSubmit={handleSubmit}
+            onPreview={handlePreview}
+          />
         </CardContent>
       </Card>
 
+      {previewData && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Preview</CardTitle>
+            <CardDescription>Preview of the transformation result</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <pre className="bg-muted p-4 rounded-lg text-xs overflow-auto max-h-[400px]">
+              {JSON.stringify(previewData, null, 2)}
+            </pre>
+          </CardContent>
+        </Card>
+      )}
       <div className="grid grid-cols-2 gap-4">
         <Card>
           <CardHeader>
