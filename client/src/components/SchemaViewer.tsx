@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Card,
   CardContent,
@@ -8,6 +8,10 @@ import {
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Copy, Check } from "lucide-react";
 import { productSchema, orderSchema } from '@shared/schemas';
 
 interface SchemaViewerProps {
@@ -18,9 +22,12 @@ interface SchemaFieldProps {
   name: string;
   field: any;
   required: boolean;
+  path: string;
 }
 
-const SchemaField: React.FC<SchemaFieldProps> = ({ name, field, required }) => {
+const SchemaField: React.FC<SchemaFieldProps> = ({ name, field, required, path }) => {
+  const [copied, setCopied] = useState(false);
+
   const getTypeColor = (type: string | string[]) => {
     const typeMap: Record<string, string> = {
       string: 'bg-blue-100 text-blue-800',
@@ -35,6 +42,12 @@ const SchemaField: React.FC<SchemaFieldProps> = ({ name, field, required }) => {
       : typeMap[type] || 'bg-gray-100 text-gray-800';
   };
 
+  const handleCopyPath = () => {
+    navigator.clipboard.writeText(path);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
     <div className="py-2 border-b">
       <div className="flex items-center justify-between">
@@ -43,6 +56,10 @@ const SchemaField: React.FC<SchemaFieldProps> = ({ name, field, required }) => {
           {required && (
             <Badge variant="destructive" className="text-[10px]">Required</Badge>
           )}
+          <Badge variant="outline" className="text-[10px] cursor-pointer" onClick={handleCopyPath}>
+            {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+            {path}
+          </Badge>
         </div>
         <Badge className={getTypeColor(field.type)}>
           {Array.isArray(field.type) ? field.type.join(' | ') : field.type}
@@ -60,6 +77,126 @@ const SchemaField: React.FC<SchemaFieldProps> = ({ name, field, required }) => {
           ))}
         </div>
       )}
+      {field.properties && (
+        <div className="pl-4 mt-2 border-l">
+          {Object.entries(field.properties).map(([subName, subField]: [string, any]) => (
+            <SchemaField
+              key={`${path}.${subName}`}
+              name={subName}
+              field={subField}
+              required={field.required?.includes(subName) || false}
+              path={`${path}.${subName}`}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+interface JSONViewerProps {
+  data: any;
+  path?: string;
+}
+
+const JSONViewer: React.FC<JSONViewerProps> = ({ data, path = '' }) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyPath = () => {
+    navigator.clipboard.writeText(path);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  if (typeof data !== 'object' || data === null) {
+    return (
+      <div className="flex items-center gap-2">
+        <span className="text-blue-600">{JSON.stringify(data)}</span>
+        {path && (
+          <Badge 
+            variant="outline" 
+            className="text-[10px] cursor-pointer" 
+            onClick={handleCopyPath}
+          >
+            {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+            {path}
+          </Badge>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="pl-4 border-l border-gray-200">
+      {Object.entries(data).map(([key, value]) => (
+        <div key={key} className="py-1">
+          <div className="flex items-center gap-2">
+            <span className="font-medium">{key}:</span>
+            {typeof value === 'object' && value !== null ? (
+              <Badge 
+                variant="outline" 
+                className="text-[10px] cursor-pointer" 
+                onClick={handleCopyPath}
+              >
+                {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                {path ? `${path}.${key}` : key}
+              </Badge>
+            ) : null}
+          </div>
+          <JSONViewer 
+            data={value} 
+            path={path ? `${path}.${key}` : key}
+          />
+        </div>
+      ))}
+    </div>
+  );
+};
+
+interface TemplateCreatorProps {
+  schema: any;
+}
+
+const TemplateCreator: React.FC<TemplateCreatorProps> = ({ schema }) => {
+  const [templateName, setTemplateName] = useState('');
+  const [templateValue, setTemplateValue] = useState('');
+
+  const generateTemplate = () => {
+    const template = {};
+    const generateForSchema = (schemaObj: any) => {
+      const result: any = {};
+      Object.entries(schemaObj.properties || {}).forEach(([key, value]: [string, any]) => {
+        if (value.type === 'object') {
+          result[key] = generateForSchema(value);
+        } else if (value.type === 'array') {
+          result[key] = [generateForSchema(value.items)];
+        } else {
+          result[key] = `{{${key}}}`;
+        }
+      });
+      return result;
+    };
+
+    const generated = generateForSchema(schema);
+    setTemplateValue(JSON.stringify(generated, null, 2));
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-4">
+        <Input
+          placeholder="Template Name"
+          value={templateName}
+          onChange={(e) => setTemplateName(e.target.value)}
+        />
+        <Button onClick={generateTemplate}>Generate Template</Button>
+      </div>
+      <Textarea
+        placeholder="Template JSON"
+        value={templateValue}
+        onChange={(e) => setTemplateValue(e.target.value)}
+        className="font-mono h-[400px]"
+      />
     </div>
   );
 };
@@ -78,6 +215,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({ schema }) => {
           <TabsList>
             <TabsTrigger value="fields">Fields</TabsTrigger>
             <TabsTrigger value="json">JSON Schema</TabsTrigger>
+            <TabsTrigger value="template">Template Creator</TabsTrigger>
           </TabsList>
           <TabsContent value="fields" className="space-y-4">
             {Object.entries(properties).map(([name, field]) => (
@@ -86,13 +224,15 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({ schema }) => {
                 name={name}
                 field={field}
                 required={required.includes(name)}
+                path={name}
               />
             ))}
           </TabsContent>
           <TabsContent value="json">
-            <pre className="bg-muted p-4 rounded-lg text-xs overflow-auto">
-              {JSON.stringify(schema, null, 2)}
-            </pre>
+            <JSONViewer data={schema} />
+          </TabsContent>
+          <TabsContent value="template">
+            <TemplateCreator schema={schema} />
           </TabsContent>
         </Tabs>
       </CardContent>
