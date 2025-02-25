@@ -19,12 +19,12 @@ import { type Order } from "@shared/schema";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function Orders() {
-  const [filter, setFilter] = useState<string>("");
+  const [filter, setFilter] = useState<string>("all");
 
   const { data: orders, isLoading } = useQuery<Order[]>({
     queryKey: ['/api/orders', filter],
     queryFn: async () => {
-      const params = filter ? `?status=${filter}` : '';
+      const params = filter !== 'all' ? `?status=${filter}` : '';
       const res = await fetch(`/api/orders${params}`);
       if (!res.ok) throw new Error('Failed to fetch orders');
       return res.json();
@@ -40,7 +40,7 @@ export default function Orders() {
             <SelectValue placeholder="Filter by status" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All</SelectItem>
+            <SelectItem value="all">All Orders</SelectItem>
             <SelectItem value="UNFULFILLED">Unfulfilled</SelectItem>
             <SelectItem value="FULFILLED">Fulfilled</SelectItem>
             <SelectItem value="CANCELLED">Cancelled</SelectItem>
