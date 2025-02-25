@@ -12,6 +12,7 @@ interface JsonPathViewerProps {
   data: any;
   path?: string;
   level?: number;
+  onPathSelect?: (path: string) => void;
 }
 
 const getValueColor = (value: any) => {
@@ -22,7 +23,12 @@ const getValueColor = (value: any) => {
   return '';
 };
 
-const JsonPathViewer: React.FC<JsonPathViewerProps> = ({ data, path = '', level = 0 }) => {
+const JsonPathViewer: React.FC<JsonPathViewerProps> = ({ 
+  data, 
+  path = '', 
+  level = 0,
+  onPathSelect 
+}) => {
   const [isExpanded, setIsExpanded] = useState(level < 2);
   const [copied, setCopied] = useState(false);
 
@@ -30,6 +36,14 @@ const JsonPathViewer: React.FC<JsonPathViewerProps> = ({ data, path = '', level 
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handlePathClick = (fullPath: string) => {
+    if (onPathSelect) {
+      onPathSelect(fullPath);
+    } else {
+      handleCopy(fullPath);
+    }
   };
 
   if (typeof data !== 'object' || data === null) {
@@ -60,19 +74,19 @@ const JsonPathViewer: React.FC<JsonPathViewerProps> = ({ data, path = '', level 
               <Badge 
                 variant="outline" 
                 className="cursor-pointer text-xs"
-                onClick={() => handleCopy(path)}
+                onClick={() => handlePathClick(path)}
               >
                 {path || 'root'}
                 <Copy className="ml-1 h-3 w-3" />
               </Badge>
             </TooltipTrigger>
             <TooltipContent>
-              <p>Click to copy JSON path</p>
+              <p>{onPathSelect ? 'Click to select path' : 'Click to copy path'}</p>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
       </div>
-      
+
       {isExpanded && (
         <div className="pl-4">
           {Object.entries(data).map(([key, value], index) => (
@@ -86,13 +100,14 @@ const JsonPathViewer: React.FC<JsonPathViewerProps> = ({ data, path = '', level 
                   data={value} 
                   path={path ? `${path}.${key}` : key}
                   level={level + 1}
+                  onPathSelect={onPathSelect}
                 />
               </div>
             </div>
           ))}
         </div>
       )}
-      
+
       <div className="pl-4">
         <span>{isArray ? ']' : '}'}</span>
       </div>
