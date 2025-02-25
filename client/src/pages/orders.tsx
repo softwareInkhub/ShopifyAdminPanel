@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   Table,
   TableBody,
@@ -34,6 +34,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { type Order } from "@shared/schema";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/hooks/use-toast";
+import { queryClient } from "@/lib/queryClient";
 import {
   Package,
   Search,
@@ -43,6 +45,7 @@ import {
   TrendingUp,
   TrendingDown,
   DollarSign,
+  RefreshCw,
 } from "lucide-react";
 import {
   Popover,
@@ -60,6 +63,7 @@ const ORDER_STATUSES = {
 };
 
 export default function Orders() {
+  const { toast } = useToast();
   const [filter, setFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [dateRange, setDateRange] = useState<{ from?: Date; to?: Date }>({});
@@ -82,6 +86,36 @@ export default function Orders() {
       const res = await fetch(`/api/orders?${params.toString()}`);
       if (!res.ok) throw new Error('Failed to fetch orders');
       return res.json();
+    }
+  });
+
+  // Sync orders mutation
+  const syncOrdersMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/api/jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'orders',
+          config: {
+            startDate: dateRange.from?.toISOString(),
+            endDate: dateRange.to?.toISOString(),
+            batchSize: 50
+          }
+        })
+      });
+      if (!res.ok) throw new Error('Failed to start sync job');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/orders'] });
+      toast({ title: "Order sync started" });
+    },
+    onError: () => {
+      toast({ 
+        title: "Failed to sync orders",
+        variant: "destructive"
+      });
     }
   });
 
@@ -117,7 +151,16 @@ export default function Orders() {
     <div className="p-8 space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold">Orders</h1>
-        <Button>Export Orders</Button>
+        <div className="flex gap-2">
+          <Button 
+            onClick={() => syncOrdersMutation.mutate()}
+            disabled={syncOrdersMutation.isPending}
+          >
+            <RefreshCw className={`mr-2 h-4 w-4 ${syncOrdersMutation.isPending ? 'animate-spin' : ''}`} />
+            Sync Orders
+          </Button>
+          <Button variant="outline">Export Orders</Button>
+        </div>
       </div>
 
       {/* Statistics Cards */}

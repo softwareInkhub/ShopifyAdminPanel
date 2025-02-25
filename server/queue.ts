@@ -17,12 +17,16 @@ class MemoryQueue {
   async add(name: string, data: any) {
     const jobId = Date.now().toString();
     this.jobs.set(jobId, data);
+    console.log(`Added new job ${jobId} to queue:`, data);
 
     if (this.handlers.has(name)) {
       try {
         await this.handlers.get(name)!({
           data,
-          progress: async (n: number) => console.log(`Job ${jobId} progress: ${n}%`)
+          progress: async (n: number) => {
+            console.log(`Job ${jobId} progress: ${n}%`);
+            return Promise.resolve();
+          }
         });
       } catch (error) {
         console.error(`Job ${jobId} failed:`, error);
@@ -171,6 +175,8 @@ export async function initializeQueue() {
       let totalProcessed = 0;
 
       try {
+        console.log(`Starting ${type} sync job ${jobId} with config:`, config);
+
         while (hasMore) {
           // Create batch record
           const batch = await storage.createJobBatch({
@@ -199,6 +205,7 @@ export async function initializeQueue() {
             // Update job progress
             const progress = Math.min(Math.round((totalProcessed / (totalProcessed + (hasMore ? 50 : 0))) * 100), 100);
             await job.progress(progress);
+            console.log(`Job ${jobId} progress: ${progress}%, processed ${totalProcessed} items`);
 
             await storage.updateJob(jobId, {
               progress,
@@ -211,6 +218,7 @@ export async function initializeQueue() {
             // Rate limiting delay
             await new Promise(resolve => setTimeout(resolve, 1000));
           } catch (error: any) {
+            console.error(`Batch ${batchNumber} failed:`, error);
             await storage.updateJobBatch(batch.id, {
               status: 'failed',
               completedAt: new Date(),
@@ -221,6 +229,7 @@ export async function initializeQueue() {
         }
 
         // Complete job
+        console.log(`Job ${jobId} completed successfully, processed ${totalProcessed} items`);
         await storage.updateJob(jobId, {
           status: 'completed',
           progress: 100,
