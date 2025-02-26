@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useIndexedDB } from "@/hooks/useIndexedDB";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -41,6 +42,7 @@ interface OrdersResponse {
 }
 
 function Orders() {
+  const { get: getFromIDB, set: setInIDB } = useIndexedDB();
   const { toast } = useToast();
   const [filter, setFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
@@ -50,8 +52,17 @@ function Orders() {
   const pageSize = 100; // Show 100 orders per page
   const queryClient = useQueryClient();
 
-  // Function to fetch orders data
+  // Enhanced fetch function with IndexedDB caching
   const fetchOrders = async (pageNum: number) => {
+    const cacheKey = `orders:${JSON.stringify({ filter, search, dateRange, pageNum, pageSize })}`;
+
+    // Try IndexedDB first
+    const cachedData = await getFromIDB(cacheKey);
+    if (cachedData) {
+      return cachedData;
+    }
+
+    // If not in IndexedDB, fetch from API
     const params = new URLSearchParams();
     if (filter !== 'all') params.append('status', filter);
     if (search) params.append('search', search);
@@ -62,10 +73,14 @@ function Orders() {
 
     const res = await fetch(`/api/orders?${params.toString()}`);
     if (!res.ok) throw new Error('Failed to fetch orders');
-    return res.json();
+    const data = await res.json();
+
+    // Cache in IndexedDB
+    await setInIDB(cacheKey, data, 30 * 60 * 1000); // 30 minutes TTL
+    return data;
   };
 
-  // Prefetch multiple pages in parallel
+  // Enhanced prefetch function
   const prefetchPages = async (currentPage: number, totalPages: number) => {
     const pagesToPrefetch = [];
     // Prefetch next 2 pages and previous page
@@ -82,6 +97,7 @@ function Orders() {
           queryKey: ['/api/orders', filter, search, dateRange, pageNum, pageSize],
           queryFn: () => fetchOrders(pageNum),
           staleTime: 5 * 60 * 1000,
+          cacheTime: 30 * 60 * 1000,
         })
       )
     );
@@ -91,17 +107,10 @@ function Orders() {
   const { data, isLoading } = useQuery<OrdersResponse>({
     queryKey: ['/api/orders', filter, search, dateRange, page, pageSize],
     queryFn: () => fetchOrders(page),
-    staleTime: 5 * 60 * 1000, // Data stays fresh for 5 minutes
-    gcTime: 30 * 60 * 1000, // Keep unused data in cache for 30 minutes
-    keepPreviousData: true, // Keep showing previous page data while loading new page
+    staleTime: 5 * 60 * 1000,
+    cacheTime: 30 * 60 * 1000,
+    keepPreviousData: true,
   });
-
-  // Prefetch pages when current page data is loaded
-  useEffect(() => {
-    if (data?.pagination) {
-      prefetchPages(page, data.pagination.totalPages);
-    }
-  }, [page, data, filter, search, dateRange, queryClient]);
 
   // Sync orders mutation
   const syncOrdersMutation = useMutation({
@@ -382,6 +391,20 @@ function Orders() {
       </Dialog>
     </div>
   );
+}
+
+// Register service worker
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').then(
+      (registration) => {
+        console.log('ServiceWorker registration successful');
+      },
+      (err) => {
+        console.log('ServiceWorker registration failed:', err);
+      }
+    );
+  });
 }
 
 export default function OrdersPage() {

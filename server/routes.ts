@@ -148,6 +148,16 @@ async function fetchOrdersPage(page: number, limit: number, status?: string) {
 
 
 export async function registerRoutes(app: Express) {
+  // Add cache control middleware for API responses
+  app.use('/api', (req, res, next) => {
+    // Set cache control headers
+    res.set({
+      'Cache-Control': 'public, max-age=300, stale-while-revalidate=604800',
+      'Vary': 'Accept-Encoding',
+    });
+    next();
+  });
+
   // Enhanced orders endpoint with background prefetching
   app.get("/api/orders", async (req, res) => {
     try {
@@ -162,17 +172,20 @@ export async function registerRoutes(app: Express) {
       const currentPage = parseInt(page as string);
       const limit = parseInt(pageSize as string);
 
+      // Generate ETag based on query parameters
+      const etag = `"orders-${JSON.stringify({ status, search, page, pageSize })}"`;
+
+      // Check if client has valid cached version
+      if (req.headers['if-none-match'] === etag) {
+        return res.status(304).send();
+      }
+
       // Try cache first
       const cacheKey = `orders:${JSON.stringify({ status, search, page, pageSize })}`;
       const cachedData = await cacheManager.get(cacheKey);
       if (cachedData) {
-        // Start prefetching next page in background
-        const nextPageKey = `orders:${JSON.stringify({ status, search, page: currentPage + 1, pageSize })}`;
-        cacheManager.batchPrefetch([nextPageKey], async (key) => {
-          const nextPage = await fetchOrdersPage(currentPage + 1, limit, status as string);
-          return nextPage;
-        });
-
+        // Set ETag and return cached data
+        res.set('ETag', etag);
         logger.server.info('Returning cached orders data');
         return res.json(cachedData);
       }
@@ -191,13 +204,8 @@ export async function registerRoutes(app: Express) {
       // Cache the results
       await cacheManager.set(cacheKey, result, CACHE_TTL);
 
-      // Prefetch next page in background
-      const nextPageKey = `orders:${JSON.stringify({ status, search, page: currentPage + 1, pageSize })}`;
-      cacheManager.batchPrefetch([nextPageKey], async (key) => {
-        const nextPage = await fetchOrdersPage(currentPage + 1, limit, status as string);
-        return nextPage;
-      });
-
+      // Set ETag and return response
+      res.set('ETag', etag);
       res.json(result);
     } catch (error) {
       logger.server.error('Orders fetch error:', error);
