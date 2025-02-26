@@ -28,7 +28,6 @@ interface DashboardWidget {
   component: React.ReactNode;
   detailComponent?: React.ReactNode;
   enabled: boolean;
-  size?: 'sm' | 'md' | 'lg';
 }
 
 const defaultWidgets: DashboardWidget[] = [
@@ -36,37 +35,33 @@ const defaultWidgets: DashboardWidget[] = [
     id: 'sync-health',
     title: 'Sync Health Monitor',
     description: 'Real-time sync status and performance metrics',
-    component: <SyncHealthDashboard />,
+    component: <SyncSummaryWidget />,
     detailComponent: <SyncHealthDashboard />,
-    enabled: true,
-    size: 'lg'
+    enabled: true
   },
   {
     id: 'orders',
     title: 'Recent Orders',
     description: 'Latest order activity and statistics',
-    component: <OrdersWidget />,
+    component: <OrdersSummaryWidget />,
     detailComponent: <OrdersDetailView />,
-    enabled: true,
-    size: 'md'
+    enabled: true
   },
   {
     id: 'products',
     title: 'Product Analytics',
     description: 'Product performance and inventory metrics',
-    component: <ProductsWidget />,
+    component: <ProductsSummaryWidget />,
     detailComponent: <ProductsDetailView />,
-    enabled: true,
-    size: 'md'
+    enabled: true
   },
   {
     id: 'cache',
     title: 'Cache Performance',
     description: 'Cache hit rates and optimization metrics',
-    component: <CacheMetricsWidget />,
+    component: <CacheSummaryWidget />,
     detailComponent: <CacheDetailView />,
-    enabled: true,
-    size: 'sm'
+    enabled: true
   }
 ];
 
@@ -78,11 +73,9 @@ export default function AdminDashboard() {
 
   const handleDragEnd = (result: any) => {
     if (!result.destination) return;
-
     const items = Array.from(widgets);
     const [reorderedItem] = items.splice(result.source.index, 1);
     items.splice(result.destination.index, 0, reorderedItem);
-
     setWidgets(items);
   };
 
@@ -92,14 +85,6 @@ export default function AdminDashboard() {
         w.id === widgetId ? { ...w, enabled: !w.enabled } : w
       )
     );
-  };
-
-  const getWidgetSize = (size: 'sm' | 'md' | 'lg' = 'md') => {
-    switch (size) {
-      case 'sm': return 'col-span-1';
-      case 'lg': return 'col-span-2';
-      default: return 'col-span-1';
-    }
   };
 
   const selectedWidgetData = widgets.find(w => w.id === selectedWidget);
@@ -187,7 +172,7 @@ export default function AdminDashboard() {
       ) : (
         <div className={`grid gap-6 ${
           layout === 'grid' 
-            ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-4 auto-rows-fr' 
+            ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4' 
             : 'grid-cols-1'
         }`}>
           {widgets
@@ -195,11 +180,7 @@ export default function AdminDashboard() {
             .map(widget => (
               <Card 
                 key={widget.id}
-                className={`
-                  ${layout === 'grid' ? getWidgetSize(widget.size) : ''} 
-                  hover:shadow-lg transition-shadow duration-200 cursor-pointer
-                  h-full
-                `}
+                className="hover:shadow-lg transition-shadow duration-200 cursor-pointer h-[200px]"
                 onClick={() => setSelectedWidget(widget.id)}
               >
                 <CardHeader className="p-4">
@@ -233,7 +214,31 @@ export default function AdminDashboard() {
   );
 }
 
-function OrdersWidget() {
+function SyncSummaryWidget() {
+  const { data: metrics } = useQuery({
+    queryKey: ['syncMetrics'],
+    queryFn: async () => {
+      const response = await fetch('/api/sync/metrics');
+      return response.json();
+    },
+    refetchInterval: 5000
+  });
+
+  return (
+    <div className="grid grid-cols-2 gap-4">
+      <div>
+        <p className="text-sm font-medium">Sync Speed</p>
+        <p className="text-2xl">{metrics?.currentSpeed || 0}/s</p>
+      </div>
+      <div>
+        <p className="text-sm font-medium">Error Rate</p>
+        <p className="text-2xl">{metrics?.errorRate || 0}%</p>
+      </div>
+    </div>
+  );
+}
+
+function OrdersSummaryWidget() {
   const { data: orders } = useQuery({
     queryKey: ['orders'],
     queryFn: async () => {
@@ -242,23 +247,75 @@ function OrdersWidget() {
     }
   });
 
+  const recentOrders = orders?.slice(0, 2) || [];
+  const totalOrders = orders?.length || 0;
+
   return (
-    <ScrollArea className="h-[300px]">
-      <div className="space-y-4">
-        {orders?.map((order: any) => (
-          <div key={order.id} className="flex justify-between items-center p-2 bg-muted rounded">
-            <div>
-              <p className="font-medium">Order #{order.id}</p>
-              <p className="text-sm text-muted-foreground">{order.customerEmail}</p>
-            </div>
-            <div className="text-right">
-              <p className="font-medium">${order.totalPrice}</p>
-              <p className="text-sm text-muted-foreground">{order.status}</p>
-            </div>
+    <div className="space-y-2">
+      <div className="flex justify-between items-center">
+        <p className="text-sm font-medium">Total Orders</p>
+        <p className="text-2xl">{totalOrders}</p>
+      </div>
+      <div className="text-sm text-muted-foreground">
+        {recentOrders.map((order: any) => (
+          <div key={order.id} className="truncate">
+            Order #{order.id} - ${order.totalPrice}
           </div>
         ))}
       </div>
-    </ScrollArea>
+    </div>
+  );
+}
+
+function ProductsSummaryWidget() {
+  const { data: products } = useQuery({
+    queryKey: ['products'],
+    queryFn: async () => {
+      const response = await fetch('/api/products');
+      return response.json();
+    }
+  });
+
+  const totalProducts = products?.length || 0;
+  const totalValue = products?.reduce((sum: number, p: any) => sum + parseFloat(p.price), 0) || 0;
+
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <p className="text-sm font-medium">Products</p>
+          <p className="text-2xl">{totalProducts}</p>
+        </div>
+        <div>
+          <p className="text-sm font-medium">Value</p>
+          <p className="text-2xl">${totalValue.toFixed(0)}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CacheSummaryWidget() {
+  const { data: metrics } = useQuery({
+    queryKey: ['cache-metrics'],
+    queryFn: async () => {
+      const response = await fetch('/api/cache/metrics');
+      return response.json();
+    },
+    refetchInterval: 5000
+  });
+
+  return (
+    <div className="grid grid-cols-2 gap-4">
+      <div>
+        <p className="text-sm font-medium">Hit Rate</p>
+        <p className="text-2xl">{metrics?.hitRate?.toFixed(1)}%</p>
+      </div>
+      <div>
+        <p className="text-sm font-medium">Items</p>
+        <p className="text-2xl">{metrics?.itemCount}</p>
+      </div>
+    </div>
   );
 }
 
@@ -327,34 +384,6 @@ function OrdersDetailView() {
         </CardContent>
       </Card>
     </div>
-  );
-}
-
-function ProductsWidget() {
-  const { data: products } = useQuery({
-    queryKey: ['products'],
-    queryFn: async () => {
-      const response = await fetch('/api/products');
-      return response.json();
-    }
-  });
-
-  return (
-    <ScrollArea className="h-[300px]">
-      <div className="space-y-4">
-        {products?.map((product: any) => (
-          <div key={product.id} className="flex justify-between items-center p-2 bg-muted rounded">
-            <div>
-              <p className="font-medium">{product.title}</p>
-              <p className="text-sm text-muted-foreground">{product.status}</p>
-            </div>
-            <div className="text-right">
-              <p className="font-medium">${product.price}</p>
-            </div>
-          </div>
-        ))}
-      </div>
-    </ScrollArea>
   );
 }
 
@@ -441,38 +470,6 @@ function ProductsDetailView() {
           </ScrollArea>
         </CardContent>
       </Card>
-    </div>
-  );
-}
-
-function CacheMetricsWidget() {
-  const { data: metrics } = useQuery({
-    queryKey: ['cache-metrics'],
-    queryFn: async () => {
-      const response = await fetch('/api/cache/metrics');
-      return response.json();
-    },
-    refetchInterval: 5000
-  });
-
-  return (
-    <div className="grid grid-cols-2 gap-4">
-      <div>
-        <p className="text-sm font-medium">Hit Rate</p>
-        <p className="text-2xl">{metrics?.hitRate?.toFixed(1)}%</p>
-      </div>
-      <div>
-        <p className="text-sm font-medium">Miss Rate</p>
-        <p className="text-2xl">{metrics?.missRate?.toFixed(1)}%</p>
-      </div>
-      <div>
-        <p className="text-sm font-medium">Cache Size</p>
-        <p className="text-2xl">{metrics?.itemCount}</p>
-      </div>
-      <div>
-        <p className="text-sm font-medium">Avg Response</p>
-        <p className="text-2xl">{metrics?.averageResponseTime?.toFixed(2)}ms</p>
-      </div>
     </div>
   );
 }
