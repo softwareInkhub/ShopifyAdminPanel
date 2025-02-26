@@ -100,60 +100,74 @@ const CACHE_TTL = 300; // 5 minutes
 
 // Helper function to fetch a single page of orders
 async function fetchOrdersPage(page: number, limit: number, status?: string) {
-  const db = await getDb();
-  let query = db.collection('orders');
+  try {
+    const db = await getDb();
+    let query = db.collection('orders');
 
-  if (status && status !== 'all') {
-    query = query.where('status', '==', status);
+    if (status && status !== 'all') {
+      query = query.where('status', '==', status);
+    }
+
+    // Get total count first
+    const totalSnapshot = await query.get();
+    const total = totalSnapshot.size;
+
+    // Apply ordering and pagination
+    query = query.orderBy('createdAt', 'desc')
+                .limit(limit)
+                .offset((page - 1) * limit);
+
+    const ordersSnapshot = await query.get();
+    logger.server.info(`Fetched ${ordersSnapshot.size} orders from Firebase`);
+
+    let orders = [];
+    ordersSnapshot.forEach((doc) => {
+      try {
+        const data = doc.data();
+        logger.server.debug(`Processing order ${doc.id}:`, data);
+
+        orders.push({
+          id: doc.id,
+          customerEmail: data.customerEmail || 'N/A',
+          customerName: data.customerName,
+          totalPrice: parseFloat(data.totalPrice || 0).toFixed(2),
+          tax: data.tax ? parseFloat(data.tax).toFixed(2) : undefined,
+          status: data.status || 'UNFULFILLED',
+          createdAt: data.createdAt?.toDate?.() || new Date(data.createdAt) || new Date(),
+          currency: data.currency || 'USD',
+          items: Array.isArray(data.items) ? data.items.map(item => ({
+            title: item.title || 'Unknown Product',
+            quantity: item.quantity || 1,
+            price: parseFloat(item.price || 0).toFixed(2)
+          })) : [],
+          notes: data.notes,
+          shippingAddress: data.shippingAddress,
+          billingAddress: data.billingAddress,
+          paymentMethod: data.paymentMethod,
+          fulfillmentStatus: data.fulfillmentStatus,
+          tags: data.tags || [],
+          metadata: data.metadata || {}
+        });
+      } catch (error) {
+        logger.server.error(`Error transforming order ${doc.id}:`, error);
+      }
+    });
+
+    logger.server.info(`Successfully processed ${orders.length} orders`);
+
+    return {
+      orders,
+      pagination: {
+        total,
+        currentPage: page,
+        pageSize: limit,
+        totalPages: Math.ceil(total / limit)
+      }
+    };
+  } catch (error) {
+    logger.server.error('Error fetching orders:', error);
+    throw error;
   }
-
-  // Get total count first
-  const totalSnapshot = await query.get();
-  const total = totalSnapshot.size;
-
-  // Apply ordering and pagination
-  query = query.orderBy('createdAt', 'desc')
-              .limit(limit)
-              .offset((page - 1) * limit);
-
-  const ordersSnapshot = await query.get();
-
-  let orders = [];
-  ordersSnapshot.forEach((doc) => {
-    try {
-      const data = doc.data();
-      orders.push({
-        id: doc.id,
-        customerEmail: data.customerEmail || 'N/A',
-        customerName: data.customerName,
-        totalPrice: parseFloat(data.totalPrice || 0).toFixed(2),
-        tax: data.tax,
-        status: data.status || 'UNFULFILLED',
-        createdAt: data.createdAt?.toDate?.() || new Date(data.createdAt) || new Date(),
-        currency: data.currency || 'USD',
-        items: data.items || [],
-        notes: data.notes,
-        shippingAddress: data.shippingAddress,
-        billingAddress: data.billingAddress,
-        paymentMethod: data.paymentMethod,
-        fulfillmentStatus: data.fulfillmentStatus,
-        tags: data.tags || [],
-        metadata: data.metadata || {}
-      });
-    } catch (error) {
-      logger.server.error(`Error transforming order ${doc.id}:`, error);
-    }
-  });
-
-  return {
-    orders,
-    pagination: {
-      total,
-      currentPage: page,
-      pageSize: limit,
-      totalPages: Math.ceil(total / limit)
-    }
-  };
 }
 
 
