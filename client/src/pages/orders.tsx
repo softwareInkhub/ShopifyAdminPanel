@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useIndexedDB } from "@/hooks/useIndexedDB";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -54,7 +53,6 @@ interface OrdersResponse {
 }
 
 function Orders() {
-  const { get: getFromIDB, set: setInIDB, clear: clearIDB } = useIndexedDB();
   const { toast } = useToast();
   const [filter, setFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
@@ -64,16 +62,8 @@ function Orders() {
   const pageSize = 100;
   const queryClient = useQueryClient();
 
-  // Enhanced fetch function with cache busting
+  // Enhanced fetch function with proper cache handling
   const fetchOrders = async (pageNum: number) => {
-    const cacheKey = `orders:${JSON.stringify({ filter, search, dateRange, pageNum, pageSize })}`;
-
-    // Clear cache if force refresh
-    if (pageNum === 1) {
-      await clearIDB();
-      await queryClient.resetQueries({ queryKey: ['/api/orders'] });
-    }
-
     const params = new URLSearchParams();
     if (filter !== 'all') params.append('status', filter);
     if (search) params.append('search', search);
@@ -81,26 +71,22 @@ function Orders() {
     if (dateRange.to) params.append('to', dateRange.to.toISOString());
     params.append('page', pageNum.toString());
     params.append('pageSize', pageSize.toString());
-
-    // Add cache buster to force fresh data
-    params.append('_t', Date.now().toString());
+    params.append('_t', Date.now().toString()); // Cache buster
 
     const res = await fetch(`/api/orders?${params.toString()}`);
     if (!res.ok) throw new Error('Failed to fetch orders');
     const data = await res.json();
-
-    // Update IndexedDB cache
-    await setInIDB(cacheKey, data, 30 * 60 * 1000); // 30 minutes TTL
     return data;
   };
 
-  // Main query with optimized caching
+  // Main query with optimized settings
   const { data, isLoading, isFetching } = useQuery<OrdersResponse>({
     queryKey: ['/api/orders', filter, search, dateRange, page, pageSize],
     queryFn: () => fetchOrders(page),
-    staleTime: 5 * 60 * 1000, // Consider data stale after 5 minutes
-    gcTime: 30 * 60 * 1000, // Keep unused data in cache for 30 minutes
-    keepPreviousData: true, // Show previous page while loading new page
+    staleTime: 0, // Always fetch fresh data
+    cacheTime: 5 * 60 * 1000, // Cache for 5 minutes
+    refetchOnMount: true, // Refetch when component mounts
+    refetchOnWindowFocus: true, // Refetch when window gains focus
   });
 
   // Sync orders mutation with cache invalidation
@@ -123,7 +109,6 @@ function Orders() {
     },
     onSuccess: async () => {
       // Clear all caches on successful sync
-      await clearIDB();
       await queryClient.resetQueries({ queryKey: ['/api/orders'] });
       toast({ title: "Order sync started" });
     },
@@ -161,14 +146,6 @@ function Orders() {
 
   // Optimized page change handler
   const handlePageChange = (newPage: number) => {
-    // Check if the next page data is already in cache
-    const nextPageData = queryClient.getQueryData(['/api/orders', filter, search, dateRange, newPage, pageSize]);
-
-    // If not in cache, start prefetching
-    if (!nextPageData) {
-      //prefetchPages(newPage, data?.pagination?.totalPages || 1);  //Prefetching removed as it's not directly related to the intention.
-    }
-
     setPage(newPage);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -532,20 +509,6 @@ function Orders() {
       />
     </div>
   );
-}
-
-// Register service worker for offline support
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').then(
-      (registration) => {
-        console.log('ServiceWorker registration successful');
-      },
-      (err) => {
-        console.log('ServiceWorker registration failed:', err);
-      }
-    );
-  });
 }
 
 export default function OrdersPage() {
