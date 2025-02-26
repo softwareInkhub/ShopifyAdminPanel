@@ -42,28 +42,21 @@ export async function registerRoutes(app: Express) {
     try {
       logger.server.info('Fetching orders...');
       const { status, search, from, to, page = 1, limit = 10 } = req.query;
-      const cacheKey = `orders:${JSON.stringify({ status, search, from, to, page, limit })}`;
 
       // Try cache first
+      const cacheKey = `orders:${JSON.stringify({ status, search, from, to, page, limit })}`;
       const cachedData = await cacheManager.get(cacheKey);
       if (cachedData) {
         logger.server.info('Returning cached orders data');
         return res.json(JSON.parse(cachedData));
       }
 
-      // Query Firebase with proper filtering and error handling
-      let ordersSnapshot;
-      try {
-        const ordersRef = db.collection('orders');
-        logger.server.info('Attempting to query Firebase orders collection');
-        ordersSnapshot = await ordersRef.get();
-        logger.server.info(`Successfully fetched ${ordersSnapshot.size} orders from Firebase`);
-      } catch (error) {
-        logger.server.error('Failed to query orders from Firebase:', error);
-        throw error;
-      }
+      // Query Firebase
+      const ordersCollection = await db.collection('orders');
+      const ordersSnapshot = await ordersCollection.get();
+      logger.server.info(`Successfully fetched ${ordersSnapshot.size} orders from Firebase`);
 
-      // Transform data with proper error handling
+      // Transform data
       let orders = [];
       for (const doc of ordersSnapshot.docs) {
         try {
@@ -111,26 +104,26 @@ export async function registerRoutes(app: Express) {
 
       // Cache the results
       await cacheManager.set(cacheKey, JSON.stringify(result));
+      logger.server.info(`Processed and returning ${paginatedOrders.length} orders`);
 
-      logger.server.info(`Successfully processed and returning ${paginatedOrders.length} orders`);
       res.json(result);
     } catch (error) {
       logger.server.error('Orders fetch error:', error);
-      res.status(500).json({ 
+      res.status(500).json({
         message: 'Failed to fetch orders',
         error: error instanceof Error ? error.message : 'Unknown error'
       });
     }
   });
 
-  // Products endpoint with enhanced error handling
+  // Products endpoint
   app.get("/api/products", async (req, res) => {
     try {
       logger.server.info('Fetching products...');
       const { search, category, status, page = 1, limit = 10 } = req.query;
-      const cacheKey = `products:${JSON.stringify({ search, category, status, page, limit })}`;
 
       // Try cache first
+      const cacheKey = `products:${JSON.stringify({ search, category, status, page, limit })}`;
       const cachedData = await cacheManager.get(cacheKey);
       if (cachedData) {
         logger.server.info('Returning cached products data');
@@ -138,16 +131,9 @@ export async function registerRoutes(app: Express) {
       }
 
       // Query Firebase
-      let productsSnapshot;
-      try {
-        const productsRef = db.collection('products');
-        logger.server.info('Attempting to query Firebase products collection');
-        productsSnapshot = await productsRef.get();
-        logger.server.info(`Successfully fetched ${productsSnapshot.size} products from Firebase`);
-      } catch (error) {
-        logger.server.error('Failed to query products from Firebase:', error);
-        throw error;
-      }
+      const productsCollection = await db.collection('products');
+      const productsSnapshot = await productsCollection.get();
+      logger.server.info(`Successfully fetched ${productsSnapshot.size} products from Firebase`);
 
       // Transform data
       let products = [];
@@ -202,12 +188,12 @@ export async function registerRoutes(app: Express) {
 
       // Cache the results
       await cacheManager.set(cacheKey, JSON.stringify(result));
+      logger.server.info(`Processed and returning ${paginatedProducts.length} products`);
 
-      logger.server.info(`Successfully processed and returning ${paginatedProducts.length} products`);
       res.json(result);
     } catch (error) {
       logger.server.error('Products fetch error:', error);
-      res.status(500).json({ 
+      res.status(500).json({
         message: 'Failed to fetch products',
         error: error instanceof Error ? error.message : 'Unknown error'
       });
