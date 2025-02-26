@@ -36,36 +36,52 @@ async function initializeFirebase() {
     logger.server.info(`Firebase connection verified in ${Date.now() - startTime}ms`);
 
     // Initialize sample data if not exists
-    const ordersRef = await db.collection('orders').limit(1).get();
-    const productsRef = await db.collection('products').limit(1).get();
+    const ordersRef = db.collection('orders');
+    const productsRef = db.collection('products');
 
-    if (ordersRef.empty) {
-      await db.collection('orders').add({
-        customerEmail: 'test@example.com',
-        totalPrice: 99.99,
-        status: 'UNFULFILLED',
-        createdAt: new Date(),
+    // Check if collections are empty
+    const [ordersSnapshot, productsSnapshot] = await Promise.all([
+      ordersRef.limit(1).get(),
+      productsRef.limit(1).get()
+    ]);
+
+    // Add sample orders if empty
+    if (ordersSnapshot.empty) {
+      const sampleOrders = Array.from({ length: 50 }, (_, i) => ({
+        customerEmail: `customer${i + 1}@example.com`,
+        totalPrice: Math.round(Math.random() * 1000 * 100) / 100,
+        status: ['UNFULFILLED', 'FULFILLED', 'CANCELLED'][Math.floor(Math.random() * 3)],
+        createdAt: new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000),
         currency: 'USD'
-      });
+      }));
+
+      for (const order of sampleOrders) {
+        await ordersRef.add(order);
+      }
       logger.server.info('Added sample order data');
     }
 
-    if (productsRef.empty) {
-      await db.collection('products').add({
-        title: 'Sample Product',
-        description: 'A test product',
-        price: 49.99,
-        status: 'ACTIVE',
-        category: 'Test',
-        createdAt: new Date()
-      });
+    // Add sample products if empty
+    if (productsSnapshot.empty) {
+      const sampleProducts = Array.from({ length: 30 }, (_, i) => ({
+        title: `Sample Product ${i + 1}`,
+        description: `A test product with ID ${i + 1}`,
+        price: Math.round(Math.random() * 500 * 100) / 100,
+        status: ['ACTIVE', 'DRAFT', 'ARCHIVED'][Math.floor(Math.random() * 3)],
+        category: ['Electronics', 'Clothing', 'Books', 'Home'][Math.floor(Math.random() * 4)],
+        createdAt: new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000)
+      }));
+
+      for (const product of sampleProducts) {
+        await productsRef.add(product);
+      }
       logger.server.info('Added sample product data');
     }
 
     firestoreDb = db;
     return db;
   } catch (error) {
-    logger.server.error(`Firebase initialization failed after ${Date.now() - startTime}ms`);
+    logger.server.error('Firebase initialization failed');
     logger.server.error(error instanceof Error ? error.message : 'Unknown error');
     throw error;
   }

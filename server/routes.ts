@@ -62,30 +62,29 @@ export async function registerRoutes(app: Express) {
       }
 
       // Query Firebase with pagination
-      const ordersCollection = db.collection('orders');
-      let query = ordersCollection;
+      const ordersRef = db.collection('orders');
+      let query = ordersRef;
 
-      // Apply filters before pagination
+      // Get total count first (we'll fetch all to get accurate count)
+      const totalSnapshot = await ordersRef.get();
+      const total = totalSnapshot.docs.length;
+
+      // Apply status filter if specified
       if (status && status !== 'all') {
         query = query.where('status', '==', status);
       }
 
-      // Get total count first
-      const totalSnapshot = await query.count().get();
-      const total = totalSnapshot.data().count;
-
-      // Apply pagination
-      query = query
-        .orderBy('createdAt', 'desc')
-        .limit(limit)
-        .offset((currentPage - 1) * limit);
+      // Apply pagination with ordering
+      query = query.orderBy('createdAt', 'desc')
+                  .limit(limit)
+                  .offset((currentPage - 1) * limit);
 
       const ordersSnapshot = await query.get();
       logger.server.info(`Successfully fetched ${ordersSnapshot.size} orders from Firebase`);
 
       // Transform data
       let orders = [];
-      for (const doc of ordersSnapshot.docs) {
+      ordersSnapshot.forEach(doc => {
         try {
           const data = doc.data();
           orders.push({
@@ -97,11 +96,11 @@ export async function registerRoutes(app: Express) {
             currency: data.currency || 'USD'
           });
         } catch (error) {
-          logger.server.error('Error transforming order data');
+          logger.server.error(`Error transforming order ${doc.id}:`, error);
         }
-      }
+      });
 
-      // Apply search filter after fetching (since Firebase doesn't support full-text search)
+      // Apply search filter after fetching
       if (search) {
         const searchStr = search.toString().toLowerCase();
         orders = orders.filter(order =>
@@ -126,7 +125,7 @@ export async function registerRoutes(app: Express) {
 
       res.json(result);
     } catch (error) {
-      logger.server.error('Orders fetch error');
+      logger.server.error('Orders fetch error:', error);
       res.status(500).json({
         message: 'Failed to fetch orders',
         error: error instanceof Error ? error.message : 'Unknown error'
@@ -158,8 +157,8 @@ export async function registerRoutes(app: Express) {
       }
 
       // Query Firebase with pagination
-      const productsCollection = db.collection('products');
-      let query = productsCollection;
+      const productsRef = db.collection('products');
+      let query = productsRef;
 
       // Apply filters before pagination
       if (status && status !== 'all') {
@@ -170,8 +169,8 @@ export async function registerRoutes(app: Express) {
       }
 
       // Get total count
-      const totalSnapshot = await query.count().get();
-      const total = totalSnapshot.data().count;
+      const totalSnapshot = await query.get();
+      const total = totalSnapshot.docs.length;
 
       // Apply pagination
       query = query
@@ -184,7 +183,7 @@ export async function registerRoutes(app: Express) {
 
       // Transform data
       let products = [];
-      for (const doc of productsSnapshot.docs) {
+      productsSnapshot.forEach(doc => {
         try {
           const data = doc.data();
           products.push({
@@ -201,7 +200,7 @@ export async function registerRoutes(app: Express) {
         } catch (error) {
           logger.server.error('Error transforming product data');
         }
-      }
+      });
 
       // Apply search filter after fetching
       if (search) {
