@@ -50,42 +50,56 @@ export async function registerRoutes(app: Express) {
       }
 
       // Query Firebase with proper filtering
-      let query = db.collection('orders');
+      let ordersSnapshot;
+      try {
+        let query = db.collection('orders');
 
-      // Apply filters
-      if (status && status !== 'all') {
-        query = query.where('status', '==', status);
+        // Apply filters
+        if (status && status !== 'all') {
+          query = query.where('status', '==', status);
+        }
+
+        ordersSnapshot = await query.get();
+        logger.server.info(`Firebase query executed successfully, got ${ordersSnapshot.size} orders`);
+      } catch (error) {
+        logger.server.error('Failed to query orders from Firebase');
+        throw error;
       }
 
+      // Transform data with proper date handling
+      let orders = ordersSnapshot.docs.map(doc => {
+        const data = doc.data();
+        try {
+          return {
+            id: doc.id,
+            customerEmail: data.customerEmail || 'N/A',
+            totalPrice: parseFloat(data.totalPrice || 0),
+            status: data.status || 'UNFULFILLED',
+            createdAt: data.createdAt?.toDate?.() || new Date(data.createdAt) || new Date(),
+            currency: data.currency || 'USD'
+          };
+        } catch (error) {
+          logger.server.error(`Error transforming order ${doc.id}`);
+          return null;
+        }
+      }).filter(Boolean);
+
+      // Apply date filters in memory
       if (from) {
-        query = query.where('createdAt', '>=', new Date(from.toString()));
+        const fromDate = new Date(from.toString());
+        orders = orders.filter(order => order.createdAt >= fromDate);
       }
 
       if (to) {
-        query = query.where('createdAt', '<=', new Date(to.toString()));
+        const toDate = new Date(to.toString());
+        orders = orders.filter(order => order.createdAt <= toDate);
       }
-
-      // Execute query
-      const snapshot = await query.get();
-
-      // Transform data
-      let orders = snapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          customerEmail: data.customerEmail,
-          totalPrice: data.totalPrice,
-          status: data.status,
-          createdAt: data.createdAt?.toDate?.() || data.createdAt,
-          currency: data.currency || 'USD'
-        };
-      });
 
       // Apply text search if provided
       if (search) {
         const searchStr = search.toString().toLowerCase();
         orders = orders.filter(order =>
-          order.customerEmail?.toLowerCase().includes(searchStr) ||
+          order.customerEmail.toLowerCase().includes(searchStr) ||
           order.id.toLowerCase().includes(searchStr)
         );
       }
@@ -108,11 +122,97 @@ export async function registerRoutes(app: Express) {
       // Cache the results
       await cacheManager.set(cacheKey, JSON.stringify(result));
 
-      logger.server.info(`Retrieved ${orders.length} orders`);
+      logger.server.info(`Retrieved and processed ${orders.length} orders`);
       res.json(result);
     } catch (error) {
       logger.server.error('Orders fetch error');
       res.status(500).json({ message: 'Failed to fetch orders' });
+    }
+  });
+
+  // Products endpoint
+  app.get("/api/products", async (req, res) => {
+    try {
+      const { search, category, status, page = 1, limit = 10 } = req.query;
+      const cacheKey = `products:${JSON.stringify({ search, category, status, page, limit })}`;
+
+      // Try cache first
+      const cachedData = await cacheManager.get(cacheKey);
+      if (cachedData) {
+        return res.json(JSON.parse(cachedData));
+      }
+
+      // Query Firebase
+      let productsSnapshot;
+      try {
+        let query = db.collection('products');
+
+        // Apply filters
+        if (status && status !== 'all') {
+          query = query.where('status', '==', status);
+        }
+        if (category && category !== 'all') {
+          query = query.where('category', '==', category);
+        }
+
+        productsSnapshot = await query.get();
+        logger.server.info(`Firebase query executed successfully, got ${productsSnapshot.size} products`);
+      } catch (error) {
+        logger.server.error('Failed to query products from Firebase');
+        throw error;
+      }
+
+      // Transform data
+      let products = productsSnapshot.docs.map(doc => {
+        const data = doc.data();
+        try {
+          return {
+            id: doc.id,
+            title: data.title || 'Untitled Product',
+            description: data.description || '',
+            price: parseFloat(data.price || 0),
+            status: data.status || 'DRAFT',
+            category: data.category || 'Uncategorized',
+            createdAt: data.createdAt?.toDate?.() || new Date(data.createdAt) || new Date()
+          };
+        } catch (error) {
+          logger.server.error(`Error transforming product ${doc.id}`);
+          return null;
+        }
+      }).filter(Boolean);
+
+      // Apply text search if provided
+      if (search) {
+        const searchStr = search.toString().toLowerCase();
+        products = products.filter(product =>
+          product.title.toLowerCase().includes(searchStr) ||
+          product.description.toLowerCase().includes(searchStr)
+        );
+      }
+
+      // Apply pagination
+      const startIndex = (Number(page) - 1) * Number(limit);
+      const endIndex = startIndex + Number(limit);
+      const paginatedProducts = products.slice(startIndex, endIndex);
+
+      const result = {
+        products: paginatedProducts,
+        pagination: {
+          total: products.length,
+          page: Number(page),
+          pageSize: Number(limit),
+          totalPages: Math.ceil(products.length / Number(limit))
+        }
+      };
+
+      // Cache the results
+      await cacheManager.set(cacheKey, JSON.stringify(result));
+
+      logger.server.info(`Retrieved and processed ${products.length} products`);
+      res.json(result);
+    } catch (error) {
+      logger.server.error('Products fetch error');
+      res.status(500).json({ message: 'Failed to fetch products' });
     }
   });
 
