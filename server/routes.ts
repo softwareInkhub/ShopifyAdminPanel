@@ -346,7 +346,60 @@ export async function registerRoutes(app: Express) {
     }
   });
 
-  // Add these new endpoints after existing routes
+  // Add these new endpoints for sync management
+  app.get("/api/sync/checkpoint", async (_req, res) => {
+    try {
+      const snapshot = await db.collection('sync_checkpoints').doc('orders').get();
+      const checkpoint = snapshot.data() || {
+        lastOrderId: null,
+        lastSyncTime: null,
+        status: 'idle'
+      };
+      res.json(checkpoint);
+    } catch (error: any) {
+      console.error('Checkpoint fetch error:', error);
+      res.status(500).json({ 
+        status: 'error',
+        message: error.message 
+      });
+    }
+  });
+
+  app.post("/api/sync/resume", async (req, res) => {
+    try {
+      const checkpoint = await db.collection('sync_checkpoints').doc('orders').get();
+      const checkpointData = checkpoint.data();
+
+      // Create a new sync job with the checkpoint data
+      const job = await storage.createJob({
+        type: 'orders',
+        status: 'pending',
+        progress: 0,
+        createdAt: new Date(),
+        config: {
+          resumeFromOrderId: checkpointData?.lastOrderId,
+          lastSyncTime: checkpointData?.lastSyncTime,
+          batchSize: 100
+        }
+      });
+
+      await addJob('orders', job.id, job.config);
+
+      res.json({
+        status: 'success',
+        message: 'Sync resumed',
+        jobId: job.id,
+        checkpoint: checkpointData
+      });
+    } catch (error: any) {
+      console.error('Resume sync error:', error);
+      res.status(500).json({ 
+        status: 'error',
+        message: error.message 
+      });
+    }
+  });
+
   // Health check endpoints
   app.get("/api/monitoring/health/summary", async (_req, res) => {
     try {
@@ -408,7 +461,7 @@ export async function registerRoutes(app: Express) {
     }
   });
 
-    // Cache Performance Metrics
+  // Cache Performance Metrics
   app.get("/api/cache/metrics", async (_req, res) => {
     try {
       const snapshot = await db.collection('cache_metrics').doc('current').get();
