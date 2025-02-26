@@ -33,14 +33,14 @@ interface OrderItem {
 interface Order {
   id: string;
   customerEmail: string;
-  customerName?: string; // Added optional customerName
-  totalPrice: number | string; // Modified to handle string or number
+  customerName?: string;
+  totalPrice: number | string;
   status: string;
   createdAt: string;
   currency: string;
-  tax?: number; // Added optional tax
-  notes?: string; // Added optional notes
-  items?: OrderItem[]; // Added optional items
+  tax?: number;
+  notes?: string;
+  items?: OrderItem[];
 }
 
 interface OrdersResponse {
@@ -54,24 +54,24 @@ interface OrdersResponse {
 }
 
 function Orders() {
-  const { get: getFromIDB, set: setInIDB } = useIndexedDB();
+  const { get: getFromIDB, set: setInIDB, clear: clearIDB } = useIndexedDB();
   const { toast } = useToast();
   const [filter, setFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [dateRange, setDateRange] = useState<{ from?: Date; to?: Date }>({});
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [page, setPage] = useState(1);
-  const pageSize = 100; // Show 100 orders per page
+  const pageSize = 100;
   const queryClient = useQueryClient();
 
-  // Enhanced fetch function with IndexedDB caching
+  // Enhanced fetch function with cache busting
   const fetchOrders = async (pageNum: number) => {
     const cacheKey = `orders:${JSON.stringify({ filter, search, dateRange, pageNum, pageSize })}`;
 
-    // Try IndexedDB first
-    const cachedData = await getFromIDB(cacheKey);
-    if (cachedData) {
-      return cachedData;
+    // Clear cache if force refresh
+    if (pageNum === 1) {
+      await clearIDB();
+      await queryClient.resetQueries({ queryKey: ['/api/orders'] });
     }
 
     const params = new URLSearchParams();
@@ -82,48 +82,28 @@ function Orders() {
     params.append('page', pageNum.toString());
     params.append('pageSize', pageSize.toString());
 
+    // Add cache buster to force fresh data
+    params.append('_t', Date.now().toString());
+
     const res = await fetch(`/api/orders?${params.toString()}`);
     if (!res.ok) throw new Error('Failed to fetch orders');
     const data = await res.json();
 
-    // Cache in IndexedDB
+    // Update IndexedDB cache
     await setInIDB(cacheKey, data, 30 * 60 * 1000); // 30 minutes TTL
     return data;
   };
 
-  // Enhanced prefetch function
-  const prefetchPages = async (currentPage: number, totalPages: number) => {
-    const pagesToPrefetch = [];
-    // Prefetch next 2 pages and previous page
-    for (let i = -1; i <= 2; i++) {
-      const pageNum = currentPage + i;
-      if (pageNum > 0 && pageNum <= totalPages && pageNum !== currentPage) {
-        pagesToPrefetch.push(pageNum);
-      }
-    }
-
-    await Promise.all(
-      pagesToPrefetch.map(pageNum =>
-        queryClient.prefetchQuery({
-          queryKey: ['/api/orders', filter, search, dateRange, pageNum, pageSize],
-          queryFn: () => fetchOrders(pageNum),
-          staleTime: 5 * 60 * 1000,
-          cacheTime: 30 * 60 * 1000,
-        })
-      )
-    );
-  };
-
   // Main query with optimized caching
-  const { data, isLoading } = useQuery<OrdersResponse>({
+  const { data, isLoading, isFetching } = useQuery<OrdersResponse>({
     queryKey: ['/api/orders', filter, search, dateRange, page, pageSize],
     queryFn: () => fetchOrders(page),
-    staleTime: 5 * 60 * 1000,
-    cacheTime: 30 * 60 * 1000,
-    keepPreviousData: true,
+    staleTime: 5 * 60 * 1000, // Consider data stale after 5 minutes
+    gcTime: 30 * 60 * 1000, // Keep unused data in cache for 30 minutes
+    keepPreviousData: true, // Show previous page while loading new page
   });
 
-  // Sync orders mutation
+  // Sync orders mutation with cache invalidation
   const syncOrdersMutation = useMutation({
     mutationFn: async () => {
       const res = await fetch('/api/jobs', {
@@ -141,8 +121,10 @@ function Orders() {
       if (!res.ok) throw new Error('Failed to start sync job');
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/orders'] });
+    onSuccess: async () => {
+      // Clear all caches on successful sync
+      await clearIDB();
+      await queryClient.resetQueries({ queryKey: ['/api/orders'] });
       toast({ title: "Order sync started" });
     },
     onError: () => {
@@ -184,7 +166,7 @@ function Orders() {
 
     // If not in cache, start prefetching
     if (!nextPageData) {
-      prefetchPages(newPage, data?.pagination?.totalPages || 1);
+      //prefetchPages(newPage, data?.pagination?.totalPages || 1);  //Prefetching removed as it's not directly related to the intention.
     }
 
     setPage(newPage);
@@ -552,7 +534,7 @@ function Orders() {
   );
 }
 
-// Register service worker
+// Register service worker for offline support
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').then(

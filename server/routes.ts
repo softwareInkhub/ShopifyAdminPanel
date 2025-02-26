@@ -2,11 +2,9 @@ import type { Express } from "express";
 import { getDb } from "./firebase";
 import { logger } from './logger';
 
-// Enhanced cache manager with batch operations and prefetching
+// Cache related code at the top
 class CacheManager {
   private memoryCache = new Map<string, { data: any; expiry: number }>();
-  private backgroundJobs = new Map<string, Promise<void>>();
-  private prefetchQueue: Set<string> = new Set();
   private metrics = {
     hits: 0,
     misses: 0,
@@ -16,20 +14,15 @@ class CacheManager {
 
   initialize() {
     logger.server.info('Initialized enhanced cache manager');
-    // Start background prefetch worker
-    this.startPrefetchWorker();
+    // Clean up expired entries periodically
+    setInterval(() => this.cleanupExpiredEntries(), 60000);
   }
 
-  private startPrefetchWorker() {
-    setInterval(() => {
-      this.processPrefetchQueue();
-    }, 1000); // Process queue every second
-  }
-
-  private async processPrefetchQueue() {
-    for (const key of this.prefetchQueue) {
-      if (!this.backgroundJobs.has(key)) {
-        this.prefetchQueue.delete(key);
+  private cleanupExpiredEntries() {
+    const now = Date.now();
+    for (const [key, value] of this.memoryCache.entries()) {
+      if (value.expiry < now) {
+        this.memoryCache.delete(key);
       }
     }
   }
@@ -69,15 +62,10 @@ class CacheManager {
     }
   }
 
-  async batchPrefetch(keys: string[], fetchFn: (key: string) => Promise<any>): Promise<void> {
-    for (const key of keys) {
-      if (!this.backgroundJobs.has(key) && !this.prefetchQueue.has(key)) {
-        this.prefetchQueue.add(key);
-        const job = fetchFn(key).then(data => {
-          if (data) this.set(key, data);
-          this.backgroundJobs.delete(key);
-        });
-        this.backgroundJobs.set(key, job);
+  async invalidate(pattern: string): Promise<void> {
+    for (const key of this.memoryCache.keys()) {
+      if (key.includes(pattern)) {
+        this.memoryCache.delete(key);
       }
     }
   }
@@ -179,19 +167,19 @@ async function fetchOrdersPage(page: number, limit: number, status?: string) {
   }
 }
 
-
 export async function registerRoutes(app: Express) {
   // Add cache control middleware for API responses
   app.use('/api', (req, res, next) => {
     // Set cache control headers
     res.set({
-      'Cache-Control': 'public, max-age=300, stale-while-revalidate=604800',
-      'Vary': 'Accept-Encoding',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0'
     });
     next();
   });
 
-  // Enhanced orders endpoint with background prefetching
+  // Enhanced orders endpoint with cache invalidation
   app.get("/api/orders", async (req, res) => {
     try {
       logger.server.info('Fetching orders...');
@@ -199,26 +187,19 @@ export async function registerRoutes(app: Express) {
         status, 
         search, 
         page = '1',
-        pageSize = DEFAULT_PAGE_SIZE.toString()
+        pageSize = DEFAULT_PAGE_SIZE.toString(),
+        _t = Date.now().toString() // Cache buster
       } = req.query;
 
       const currentPage = parseInt(page as string);
       const limit = parseInt(pageSize as string);
 
-      // Generate ETag based on query parameters
-      const etag = `"orders-${JSON.stringify({ status, search, page, pageSize })}"`;
-
-      // Check if client has valid cached version
-      if (req.headers['if-none-match'] === etag) {
-        return res.status(304).send();
-      }
+      // Generate cache key including timestamp for versioning
+      const cacheKey = `orders:${JSON.stringify({ status, search, page, pageSize, _t })}`;
 
       // Try cache first
-      const cacheKey = `orders:${JSON.stringify({ status, search, page, pageSize })}`;
       const cachedData = await cacheManager.get(cacheKey);
       if (cachedData) {
-        // Set ETag and return cached data
-        res.set('ETag', etag);
         logger.server.info('Returning cached orders data');
         return res.json(cachedData);
       }
@@ -234,11 +215,9 @@ export async function registerRoutes(app: Express) {
         );
       }
 
-      // Cache the results
+      // Cache the results with versioned key
       await cacheManager.set(cacheKey, result, CACHE_TTL);
 
-      // Set ETag and return response
-      res.set('ETag', etag);
       res.json(result);
     } catch (error) {
       logger.server.error('Orders fetch error:', error);
@@ -246,6 +225,16 @@ export async function registerRoutes(app: Express) {
         message: 'Failed to fetch orders',
         error: error instanceof Error ? error.message : 'Unknown error'
       });
+    }
+  });
+
+  // Endpoint to manually invalidate cache
+  app.post("/api/cache/invalidate", async (req, res) => {
+    try {
+      await cacheManager.invalidate('orders:');
+      res.json({ message: 'Cache invalidated successfully' });
+    } catch (error) {
+      res.status(500).json({ message: 'Failed to invalidate cache' });
     }
   });
 
