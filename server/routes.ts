@@ -36,24 +36,51 @@ class CacheManager {
 const cacheManager = new CacheManager();
 cacheManager.initialize();
 
+const DEFAULT_PAGE_SIZE = 100;
+
 export async function registerRoutes(app: Express) {
-  // Orders endpoint with enhanced error handling
+  // Orders endpoint with enhanced error handling and pagination
   app.get("/api/orders", async (req, res) => {
     try {
       logger.server.info('Fetching orders...');
-      const { status, search } = req.query;
+      const { 
+        status, 
+        search, 
+        page = '1',
+        pageSize = DEFAULT_PAGE_SIZE.toString()
+      } = req.query;
+
+      const currentPage = parseInt(page as string);
+      const limit = parseInt(pageSize as string);
 
       // Try cache first
-      const cacheKey = `orders:${JSON.stringify({ status, search })}`;
+      const cacheKey = `orders:${JSON.stringify({ status, search, page, pageSize })}`;
       const cachedData = await cacheManager.get(cacheKey);
       if (cachedData) {
         logger.server.info('Returning cached orders data');
         return res.json(JSON.parse(cachedData));
       }
 
-      // Query Firebase
-      const ordersCollection = await db.collection('orders');
-      const ordersSnapshot = await ordersCollection.get();
+      // Query Firebase with pagination
+      const ordersCollection = db.collection('orders');
+      let query = ordersCollection;
+
+      // Apply filters before pagination
+      if (status && status !== 'all') {
+        query = query.where('status', '==', status);
+      }
+
+      // Get total count first
+      const totalSnapshot = await query.count().get();
+      const total = totalSnapshot.data().count;
+
+      // Apply pagination
+      query = query
+        .orderBy('createdAt', 'desc')
+        .limit(limit)
+        .offset((currentPage - 1) * limit);
+
+      const ordersSnapshot = await query.get();
       logger.server.info(`Successfully fetched ${ordersSnapshot.size} orders from Firebase`);
 
       // Transform data
@@ -70,15 +97,11 @@ export async function registerRoutes(app: Express) {
             currency: data.currency || 'USD'
           });
         } catch (error) {
-          logger.server.error(`Error transforming order ${doc.id}:`, error);
+          logger.server.error('Error transforming order data');
         }
       }
 
-      // Apply filters
-      if (status && status !== 'all') {
-        orders = orders.filter(order => order.status === status);
-      }
-
+      // Apply search filter after fetching (since Firebase doesn't support full-text search)
       if (search) {
         const searchStr = search.toString().toLowerCase();
         orders = orders.filter(order =>
@@ -89,16 +112,21 @@ export async function registerRoutes(app: Express) {
 
       const result = {
         orders,
-        total: orders.length
+        pagination: {
+          total,
+          currentPage,
+          pageSize: limit,
+          totalPages: Math.ceil(total / limit)
+        }
       };
 
       // Cache the results
       await cacheManager.set(cacheKey, JSON.stringify(result));
-      logger.server.info(`Processed and returning ${orders.length} orders`);
+      logger.server.info(`Processed and returning ${orders.length} orders for page ${currentPage}`);
 
       res.json(result);
     } catch (error) {
-      logger.server.error('Orders fetch error:', error);
+      logger.server.error('Orders fetch error');
       res.status(500).json({
         message: 'Failed to fetch orders',
         error: error instanceof Error ? error.message : 'Unknown error'
@@ -106,23 +134,52 @@ export async function registerRoutes(app: Express) {
     }
   });
 
-  // Products endpoint
+  // Products endpoint with pagination (similar structure)
   app.get("/api/products", async (req, res) => {
     try {
       logger.server.info('Fetching products...');
-      const { search, category, status } = req.query;
+      const { 
+        search, 
+        category, 
+        status,
+        page = '1',
+        pageSize = DEFAULT_PAGE_SIZE.toString()
+      } = req.query;
+
+      const currentPage = parseInt(page as string);
+      const limit = parseInt(pageSize as string);
 
       // Try cache first
-      const cacheKey = `products:${JSON.stringify({ search, category, status })}`;
+      const cacheKey = `products:${JSON.stringify({ search, category, status, page, pageSize })}`;
       const cachedData = await cacheManager.get(cacheKey);
       if (cachedData) {
         logger.server.info('Returning cached products data');
         return res.json(JSON.parse(cachedData));
       }
 
-      // Query Firebase
-      const productsCollection = await db.collection('products');
-      const productsSnapshot = await productsCollection.get();
+      // Query Firebase with pagination
+      const productsCollection = db.collection('products');
+      let query = productsCollection;
+
+      // Apply filters before pagination
+      if (status && status !== 'all') {
+        query = query.where('status', '==', status);
+      }
+      if (category && category !== 'all') {
+        query = query.where('category', '==', category);
+      }
+
+      // Get total count
+      const totalSnapshot = await query.count().get();
+      const total = totalSnapshot.data().count;
+
+      // Apply pagination
+      query = query
+        .orderBy('createdAt', 'desc')
+        .limit(limit)
+        .offset((currentPage - 1) * limit);
+
+      const productsSnapshot = await query.get();
       logger.server.info(`Successfully fetched ${productsSnapshot.size} products from Firebase`);
 
       // Transform data
@@ -142,19 +199,11 @@ export async function registerRoutes(app: Express) {
             rawData: data.rawData || {}
           });
         } catch (error) {
-          logger.server.error(`Error transforming product ${doc.id}:`, error);
+          logger.server.error('Error transforming product data');
         }
       }
 
-      // Apply filters
-      if (status && status !== 'all') {
-        products = products.filter(product => product.status === status);
-      }
-
-      if (category && category !== 'all') {
-        products = products.filter(product => product.category === category);
-      }
-
+      // Apply search filter after fetching
       if (search) {
         const searchStr = search.toString().toLowerCase();
         products = products.filter(product =>
@@ -165,16 +214,21 @@ export async function registerRoutes(app: Express) {
 
       const result = {
         products,
-        total: products.length
+        pagination: {
+          total,
+          currentPage,
+          pageSize: limit,
+          totalPages: Math.ceil(total / limit)
+        }
       };
 
       // Cache the results
       await cacheManager.set(cacheKey, JSON.stringify(result));
-      logger.server.info(`Processed and returning ${products.length} products`);
+      logger.server.info(`Processed and returning ${products.length} products for page ${currentPage}`);
 
       res.json(result);
     } catch (error) {
-      logger.server.error('Products fetch error:', error);
+      logger.server.error('Products fetch error');
       res.status(500).json({
         message: 'Failed to fetch products',
         error: error instanceof Error ? error.message : 'Unknown error'

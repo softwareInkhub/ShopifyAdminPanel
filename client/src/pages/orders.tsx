@@ -33,7 +33,12 @@ interface Order {
 
 interface OrdersResponse {
   orders: Order[];
-  total: number;
+  pagination: {
+    total: number;
+    currentPage: number;
+    pageSize: number;
+    totalPages: number;
+  };
 }
 
 function Orders() {
@@ -42,16 +47,20 @@ function Orders() {
   const [search, setSearch] = useState("");
   const [dateRange, setDateRange] = useState<{ from?: Date; to?: Date }>({});
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [page, setPage] = useState(1);
+  const pageSize = 100; // Show 100 orders per page
 
   // Fetch orders with all params
   const { data, isLoading } = useQuery<OrdersResponse>({
-    queryKey: ['/api/orders', filter, search, dateRange],
+    queryKey: ['/api/orders', filter, search, dateRange, page, pageSize],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (filter !== 'all') params.append('status', filter);
       if (search) params.append('search', search);
       if (dateRange.from) params.append('from', dateRange.from.toISOString());
       if (dateRange.to) params.append('to', dateRange.to.toISOString());
+      params.append('page', page.toString());
+      params.append('pageSize', pageSize.toString());
 
       const res = await fetch(`/api/orders?${params.toString()}`);
       if (!res.ok) throw new Error('Failed to fetch orders');
@@ -70,7 +79,7 @@ function Orders() {
           config: {
             startDate: dateRange.from?.toISOString(),
             endDate: dateRange.to?.toISOString(),
-            batchSize: 50
+            batchSize: pageSize
           }
         })
       });
@@ -92,7 +101,7 @@ function Orders() {
   // Calculate statistics from orders data
   const orders = data?.orders || [];
   const stats = {
-    total: data?.total || 0,
+    total: data?.pagination?.total || 0,
     fulfilled: orders.filter(o => o.status === 'FULFILLED').length,
     unfulfilled: orders.filter(o => o.status === 'UNFULFILLED').length,
     totalValue: orders.reduce((sum, order) => sum + parseFloat(order.totalPrice.toString()), 0),
@@ -102,7 +111,12 @@ function Orders() {
   return (
     <div className="p-8 space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold">Orders</h1>
+        <div>
+          <h1 className="text-3xl font-bold">Orders</h1>
+          <p className="text-muted-foreground mt-2">
+            Manage and monitor your orders
+          </p>
+        </div>
         <div className="flex gap-2">
           <Button 
             onClick={() => syncOrdersMutation.mutate()}
@@ -118,7 +132,7 @@ function Orders() {
       {/* Statistics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
-          <CardHeader className="pb-2">
+          <CardHeader>
             <CardTitle className="text-sm font-medium">Total Orders</CardTitle>
           </CardHeader>
           <CardContent>
@@ -129,7 +143,7 @@ function Orders() {
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2">
+          <CardHeader>
             <CardTitle className="text-sm font-medium">Fulfillment Rate</CardTitle>
           </CardHeader>
           <CardContent>
@@ -140,7 +154,7 @@ function Orders() {
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2">
+          <CardHeader>
             <CardTitle className="text-sm font-medium">Total Value</CardTitle>
           </CardHeader>
           <CardContent>
@@ -151,7 +165,7 @@ function Orders() {
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2">
+          <CardHeader>
             <CardTitle className="text-sm font-medium">Average Order Value</CardTitle>
           </CardHeader>
           <CardContent>
@@ -258,6 +272,31 @@ function Orders() {
         </Table>
       </div>
 
+      {/* Pagination Controls */}
+      {data?.pagination && (
+        <div className="flex justify-between items-center mt-4">
+          <div>
+            Showing {((page - 1) * pageSize) + 1} to {Math.min(page * pageSize, data.pagination.total)} of {data.pagination.total} orders
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={page === 1}
+            >
+              Previous
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setPage(p => Math.min(data.pagination.totalPages, p + 1))}
+              disabled={page === data.pagination.totalPages}
+            >
+              Next
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Order Details Modal */}
       <Dialog open={!!selectedOrder} onOpenChange={() => setSelectedOrder(null)}>
         <DialogContent>
@@ -283,7 +322,9 @@ function Orders() {
             </div>
             <div>
               <h4 className="font-medium">Date</h4>
-              <p>{selectedOrder && new Date(selectedOrder.createdAt).toLocaleString()}</p>
+              <p>
+                {selectedOrder && new Date(selectedOrder.createdAt).toLocaleString()}
+              </p>
             </div>
           </div>
         </DialogContent>
