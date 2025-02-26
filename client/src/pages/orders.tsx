@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -65,24 +65,41 @@ function Orders() {
     return res.json();
   };
 
-  // Main query
+  // Prefetch multiple pages in parallel
+  const prefetchPages = async (currentPage: number, totalPages: number) => {
+    const pagesToPrefetch = [];
+    // Prefetch next 2 pages and previous page
+    for (let i = -1; i <= 2; i++) {
+      const pageNum = currentPage + i;
+      if (pageNum > 0 && pageNum <= totalPages && pageNum !== currentPage) {
+        pagesToPrefetch.push(pageNum);
+      }
+    }
+
+    await Promise.all(
+      pagesToPrefetch.map(pageNum =>
+        queryClient.prefetchQuery({
+          queryKey: ['/api/orders', filter, search, dateRange, pageNum, pageSize],
+          queryFn: () => fetchOrders(pageNum),
+          staleTime: 5 * 60 * 1000,
+        })
+      )
+    );
+  };
+
+  // Main query with optimized caching
   const { data, isLoading } = useQuery<OrdersResponse>({
     queryKey: ['/api/orders', filter, search, dateRange, page, pageSize],
     queryFn: () => fetchOrders(page),
     staleTime: 5 * 60 * 1000, // Data stays fresh for 5 minutes
     gcTime: 30 * 60 * 1000, // Keep unused data in cache for 30 minutes
+    keepPreviousData: true, // Keep showing previous page data while loading new page
   });
 
-  // Prefetch next page
+  // Prefetch pages when current page data is loaded
   useEffect(() => {
-    if (data?.pagination.totalPages > page) {
-      const nextPage = page + 1;
-      // Prefetch and cache next page
-      queryClient.prefetchQuery({
-        queryKey: ['/api/orders', filter, search, dateRange, nextPage, pageSize],
-        queryFn: () => fetchOrders(nextPage),
-        staleTime: 5 * 60 * 1000,
-      });
+    if (data?.pagination) {
+      prefetchPages(page, data.pagination.totalPages);
     }
   }, [page, data, filter, search, dateRange, queryClient]);
 
@@ -116,32 +133,30 @@ function Orders() {
     }
   });
 
-  // Calculate statistics from orders data
-  const orders = data?.orders || [];
-  const stats = {
-    total: data?.pagination?.total || 0,
-    fulfilled: orders.filter(o => o.status === 'FULFILLED').length,
-    unfulfilled: orders.filter(o => o.status === 'UNFULFILLED').length,
-    totalValue: orders.reduce((sum, order) => sum + parseFloat(order.totalPrice.toString()), 0),
-    avgValue: orders.length ? orders.reduce((sum, order) => sum + parseFloat(order.totalPrice.toString()), 0) / orders.length : 0
-  };
+  // Memoized stats calculation to prevent unnecessary recalculations
+  const stats = useMemo(() => {
+    const orders = data?.orders || [];
+    return {
+      total: data?.pagination?.total || 0,
+      fulfilled: orders.filter(o => o.status === 'FULFILLED').length,
+      unfulfilled: orders.filter(o => o.status === 'UNFULFILLED').length,
+      totalValue: orders.reduce((sum, order) => sum + parseFloat(order.totalPrice.toString()), 0),
+      avgValue: orders.length ? orders.reduce((sum, order) => sum + parseFloat(order.totalPrice.toString()), 0) / orders.length : 0
+    };
+  }, [data]);
 
-  // Handle page changes
+  // Optimized page change handler
   const handlePageChange = (newPage: number) => {
     // Check if the next page data is already in cache
     const nextPageData = queryClient.getQueryData(['/api/orders', filter, search, dateRange, newPage, pageSize]);
 
-    // If not in cache, prefetch it
+    // If not in cache, start prefetching
     if (!nextPageData) {
-      queryClient.prefetchQuery({
-        queryKey: ['/api/orders', filter, search, dateRange, newPage, pageSize],
-        queryFn: () => fetchOrders(newPage),
-        staleTime: 5 * 60 * 1000,
-      });
+      prefetchPages(newPage, data?.pagination?.totalPages || 1);
     }
 
     setPage(newPage);
-    window.scrollTo(0, 0);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   return (
@@ -255,7 +270,7 @@ function Orders() {
         </Popover>
       </div>
 
-      {/* Orders Table */}
+      {/* Orders Table with optimistic loading states */}
       <div className="border rounded-lg">
         <Table>
           <TableHeader>
@@ -280,7 +295,7 @@ function Orders() {
                   <TableCell><Skeleton className="h-4 w-16" /></TableCell>
                 </TableRow>
               ))
-            ) : orders.map((order) => (
+            ) : (data?.orders || []).map((order) => (
               <TableRow key={order.id} className="cursor-pointer hover:bg-muted/50">
                 <TableCell>{order.id}</TableCell>
                 <TableCell>{order.customerEmail}</TableCell>
@@ -318,14 +333,14 @@ function Orders() {
             <Button
               variant="outline"
               onClick={() => handlePageChange(Math.max(1, page - 1))}
-              disabled={page === 1}
+              disabled={page === 1 || isLoading}
             >
               Previous
             </Button>
             <Button
               variant="outline"
               onClick={() => handlePageChange(Math.min(data.pagination.totalPages, page + 1))}
-              disabled={page === data.pagination.totalPages}
+              disabled={page === data.pagination.totalPages || isLoading}
             >
               Next
             </Button>

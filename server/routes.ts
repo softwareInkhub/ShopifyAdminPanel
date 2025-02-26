@@ -7,6 +7,12 @@ class CacheManager {
   private memoryCache = new Map<string, { data: any; expiry: number }>();
   private backgroundJobs = new Map<string, Promise<void>>();
   private prefetchQueue: Set<string> = new Set();
+  private metrics = {
+    hits: 0,
+    misses: 0,
+    totalRequests: 0,
+    totalResponseTime: 0
+  };
 
   initialize() {
     logger.server.info('Initialized enhanced cache manager');
@@ -29,13 +35,19 @@ class CacheManager {
   }
 
   async get(key: string): Promise<any> {
+    const start = Date.now();
+    this.metrics.totalRequests++;
+
     try {
       const item = this.memoryCache.get(key);
       if (item && item.expiry > Date.now()) {
+        this.metrics.hits++;
+        this.metrics.totalResponseTime += Date.now() - start;
         logger.cache.debug('Cache hit');
         return item.data;
       }
       logger.cache.debug('Cache miss');
+      this.metrics.misses++;
       // Clean up expired item
       if (item) {
         this.memoryCache.delete(key);
@@ -69,6 +81,15 @@ class CacheManager {
       }
     }
   }
+
+  getMetrics() {
+    return {
+      hitRate: (this.metrics.hits / this.metrics.totalRequests) * 100,
+      missRate: (this.metrics.misses / this.metrics.totalRequests) * 100,
+      avgResponseTime: this.metrics.totalResponseTime / this.metrics.totalRequests,
+      cacheSize: this.memoryCache.size
+    };
+  }
 }
 
 const cacheManager = new CacheManager();
@@ -77,60 +98,8 @@ cacheManager.initialize();
 const DEFAULT_PAGE_SIZE = 100;
 const CACHE_TTL = 300; // 5 minutes
 
-export async function registerRoutes(app: Express) {
-  // Enhanced orders endpoint with background prefetching
-  app.get("/api/orders", async (req, res) => {
-    try {
-      logger.server.info('Fetching orders...');
-      const { 
-        status, 
-        search, 
-        page = '1',
-        pageSize = DEFAULT_PAGE_SIZE.toString()
-      } = req.query;
-
-      const currentPage = parseInt(page as string);
-      const limit = parseInt(pageSize as string);
-
-      // Try cache first
-      const cacheKey = `orders:${JSON.stringify({ status, search, page, pageSize })}`;
-      const cachedData = await cacheManager.get(cacheKey);
-      if (cachedData) {
-        // Start prefetching next page in background
-        const nextPageKey = `orders:${JSON.stringify({ status, search, page: currentPage + 1, pageSize })}`;
-        cacheManager.batchPrefetch([nextPageKey], async (key) => {
-          const nextPage = await fetchOrdersPage(parseInt(page as string) + 1, limit, status as string);
-          return nextPage;
-        });
-
-        logger.server.info('Returning cached orders data');
-        return res.json(cachedData);
-      }
-
-      const result = await fetchOrdersPage(currentPage, limit, status as string);
-
-      // Cache the results
-      await cacheManager.set(cacheKey, result, CACHE_TTL);
-
-      // Prefetch next page in background
-      const nextPageKey = `orders:${JSON.stringify({ status, search, page: currentPage + 1, pageSize })}`;
-      cacheManager.batchPrefetch([nextPageKey], async (key) => {
-        const nextPage = await fetchOrdersPage(currentPage + 1, limit, status as string);
-        return nextPage;
-      });
-
-      res.json(result);
-    } catch (error) {
-      logger.server.error('Orders fetch error:', error);
-      res.status(500).json({
-        message: 'Failed to fetch orders',
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
-    }
-  });
-
-  // Helper function to fetch a single page of orders
-  async function fetchOrdersPage(page: number, limit: number, status?: string) {
+// Helper function to fetch a single page of orders
+async function fetchOrdersPage(page: number, limit: number, status?: string) {
     const db = await getDb();
     let query = db.collection('orders');
 
@@ -176,6 +145,68 @@ export async function registerRoutes(app: Express) {
       }
     };
   }
+
+
+export async function registerRoutes(app: Express) {
+  // Enhanced orders endpoint with background prefetching
+  app.get("/api/orders", async (req, res) => {
+    try {
+      logger.server.info('Fetching orders...');
+      const { 
+        status, 
+        search, 
+        page = '1',
+        pageSize = DEFAULT_PAGE_SIZE.toString()
+      } = req.query;
+
+      const currentPage = parseInt(page as string);
+      const limit = parseInt(pageSize as string);
+
+      // Try cache first
+      const cacheKey = `orders:${JSON.stringify({ status, search, page, pageSize })}`;
+      const cachedData = await cacheManager.get(cacheKey);
+      if (cachedData) {
+        // Start prefetching next page in background
+        const nextPageKey = `orders:${JSON.stringify({ status, search, page: currentPage + 1, pageSize })}`;
+        cacheManager.batchPrefetch([nextPageKey], async (key) => {
+          const nextPage = await fetchOrdersPage(currentPage + 1, limit, status as string);
+          return nextPage;
+        });
+
+        logger.server.info('Returning cached orders data');
+        return res.json(cachedData);
+      }
+
+      const result = await fetchOrdersPage(currentPage, limit, status as string);
+
+      // Apply search filter if needed
+      if (search) {
+        const searchStr = search.toString().toLowerCase();
+        result.orders = result.orders.filter(order =>
+          order.customerEmail.toLowerCase().includes(searchStr) ||
+          order.id.toLowerCase().includes(searchStr)
+        );
+      }
+
+      // Cache the results
+      await cacheManager.set(cacheKey, result, CACHE_TTL);
+
+      // Prefetch next page in background
+      const nextPageKey = `orders:${JSON.stringify({ status, search, page: currentPage + 1, pageSize })}`;
+      cacheManager.batchPrefetch([nextPageKey], async (key) => {
+        const nextPage = await fetchOrdersPage(currentPage + 1, limit, status as string);
+        return nextPage;
+      });
+
+      res.json(result);
+    } catch (error) {
+      logger.server.error('Orders fetch error:', error);
+      res.status(500).json({
+        message: 'Failed to fetch orders',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
 
   // Products endpoint with pagination (similar structure)
   app.get("/api/products", async (req, res) => {
