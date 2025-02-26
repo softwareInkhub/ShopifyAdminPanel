@@ -1,57 +1,17 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Calendar } from "@/components/ui/calendar";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { type Order } from "@shared/schema";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import {
-  Package,
-  Search,
-  Calendar as CalendarIcon,
-  Filter,
-  ArrowUpDown,
-  TrendingUp,
-  TrendingDown,
-  DollarSign,
-  RefreshCw,
-} from "lucide-react";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { Package, Search, Calendar as CalendarIcon, Filter, ArrowUpDown, TrendingUp, TrendingDown, DollarSign, RefreshCw } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format } from "date-fns";
 
 // Order status options with colors
@@ -62,26 +22,43 @@ const ORDER_STATUSES = {
   CANCELLED: { label: "Cancelled", color: "red" },
 };
 
+interface OrdersResponse {
+  orders: Array<{
+    id: string;
+    customerEmail: string;
+    totalPrice: number;
+    status: string;
+    createdAt: string;
+    currency: string;
+  }>;
+  pagination: {
+    total: number;
+    page: number;
+    pageSize: number;
+    totalPages: number;
+  };
+}
+
 export default function Orders() {
   const { toast } = useToast();
   const [filter, setFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [dateRange, setDateRange] = useState<{ from?: Date; to?: Date }>({});
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [sortConfig, setSortConfig] = useState<{
-    key: keyof Order;
-    direction: "asc" | "desc";
-  }>({ key: "createdAt", direction: "desc" });
+  const [selectedOrder, setSelectedOrder] = useState<any>(null);
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
 
   // Fetch orders with all params
-  const { data: orders, isLoading } = useQuery<Order[]>({
-    queryKey: ['/api/orders', filter, search, dateRange],
+  const { data, isLoading } = useQuery<OrdersResponse>({
+    queryKey: ['/api/orders', filter, search, dateRange, page, pageSize],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (filter !== 'all') params.append('status', filter);
       if (search) params.append('search', search);
       if (dateRange.from) params.append('from', dateRange.from.toISOString());
       if (dateRange.to) params.append('to', dateRange.to.toISOString());
+      params.append('page', page.toString());
+      params.append('limit', pageSize.toString());
 
       const res = await fetch(`/api/orders?${params.toString()}`);
       if (!res.ok) throw new Error('Failed to fetch orders');
@@ -119,33 +96,14 @@ export default function Orders() {
     }
   });
 
-  // Calculate statistics
-  const stats = orders ? {
-    total: orders.length,
-    fulfilled: orders.filter(o => o.status === 'FULFILLED').length,
-    unfulfilled: orders.filter(o => o.status === 'UNFULFILLED').length,
-    totalValue: orders.reduce((sum, order) => sum + parseFloat(order.totalPrice), 0),
-    avgValue: orders.length ? orders.reduce((sum, order) => sum + parseFloat(order.totalPrice), 0) / orders.length : 0
+  // Calculate statistics from paginated data
+  const stats = data?.orders ? {
+    total: data.pagination.total,
+    fulfilled: data.orders.filter(o => o.status === 'FULFILLED').length,
+    unfulfilled: data.orders.filter(o => o.status === 'UNFULFILLED').length,
+    totalValue: data.orders.reduce((sum, order) => sum + parseFloat(order.totalPrice.toString()), 0),
+    avgValue: data.orders.length ? data.orders.reduce((sum, order) => sum + parseFloat(order.totalPrice.toString()), 0) / data.orders.length : 0
   } : null;
-
-  // Sort orders
-  const sortedOrders = orders ? [...orders].sort((a, b) => {
-    const aValue = a[sortConfig.key];
-    const bValue = b[sortConfig.key];
-    const direction = sortConfig.direction === "asc" ? 1 : -1;
-
-    if (typeof aValue === "string" && typeof bValue === "string") {
-      return aValue.localeCompare(bValue) * direction;
-    }
-    return ((aValue as any) - (bValue as any)) * direction;
-  }) : [];
-
-  const handleSort = (key: keyof Order) => {
-    setSortConfig(prev => ({
-      key,
-      direction: prev.key === key && prev.direction === "asc" ? "desc" : "asc"
-    }));
-  };
 
   return (
     <div className="p-8 space-y-6">
@@ -258,36 +216,11 @@ export default function Orders() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>
-                <Button variant="ghost" onClick={() => handleSort("shopifyId")}>
-                  Order ID
-                  <ArrowUpDown className="ml-2 h-4 w-4" />
-                </Button>
-              </TableHead>
-              <TableHead>
-                <Button variant="ghost" onClick={() => handleSort("status")}>
-                  Status
-                  <ArrowUpDown className="ml-2 h-4 w-4" />
-                </Button>
-              </TableHead>
-              <TableHead>
-                <Button variant="ghost" onClick={() => handleSort("customerEmail")}>
-                  Customer
-                  <ArrowUpDown className="ml-2 h-4 w-4" />
-                </Button>
-              </TableHead>
-              <TableHead>
-                <Button variant="ghost" onClick={() => handleSort("totalPrice")}>
-                  Total
-                  <ArrowUpDown className="ml-2 h-4 w-4" />
-                </Button>
-              </TableHead>
-              <TableHead>
-                <Button variant="ghost" onClick={() => handleSort("createdAt")}>
-                  Date
-                  <ArrowUpDown className="ml-2 h-4 w-4" />
-                </Button>
-              </TableHead>
+              <TableHead>Order ID</TableHead>
+              <TableHead>Customer</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Total</TableHead>
+              <TableHead>Date</TableHead>
               <TableHead>Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -303,9 +236,10 @@ export default function Orders() {
                   <TableCell><Skeleton className="h-4 w-16" /></TableCell>
                 </TableRow>
               ))
-            ) : sortedOrders?.map((order) => (
+            ) : data?.orders.map((order) => (
               <TableRow key={order.id} className="cursor-pointer hover:bg-muted/50">
-                <TableCell>{order.shopifyId}</TableCell>
+                <TableCell>{order.id}</TableCell>
+                <TableCell>{order.customerEmail}</TableCell>
                 <TableCell>
                   <span className={`px-2 py-1 rounded-full text-xs font-medium
                     ${order.status === 'FULFILLED' ? 'bg-green-100 text-green-800' : ''}
@@ -315,76 +249,75 @@ export default function Orders() {
                     {order.status}
                   </span>
                 </TableCell>
-                <TableCell>{order.customerEmail}</TableCell>
                 <TableCell>${order.totalPrice}</TableCell>
                 <TableCell>
                   {new Date(order.createdAt).toLocaleDateString()}
                 </TableCell>
                 <TableCell>
-                  <Dialog>
-                    <DialogTrigger asChild>
-                      <Button 
-                        variant="ghost" 
-                        size="sm"
-                        onClick={() => setSelectedOrder(order)}
-                      >
-                        View Details
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-3xl">
-                      <DialogHeader>
-                        <DialogTitle>Order Details</DialogTitle>
-                      </DialogHeader>
-                      <div className="grid gap-4 py-4">
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <h3 className="font-medium mb-2">Order Information</h3>
-                            <dl className="space-y-2 text-sm">
-                              <div>
-                                <dt className="text-muted-foreground">Order ID</dt>
-                                <dd>{order.shopifyId}</dd>
-                              </div>
-                              <div>
-                                <dt className="text-muted-foreground">Status</dt>
-                                <dd>{order.status}</dd>
-                              </div>
-                              <div>
-                                <dt className="text-muted-foreground">Date</dt>
-                                <dd>{new Date(order.createdAt).toLocaleString()}</dd>
-                              </div>
-                              <div>
-                                <dt className="text-muted-foreground">Total</dt>
-                                <dd>${order.totalPrice}</dd>
-                              </div>
-                            </dl>
-                          </div>
-                          <div>
-                            <h3 className="font-medium mb-2">Customer Information</h3>
-                            <dl className="space-y-2 text-sm">
-                              <div>
-                                <dt className="text-muted-foreground">Email</dt>
-                                <dd>{order.customerEmail}</dd>
-                              </div>
-                            </dl>
-                          </div>
-                        </div>
-                        {order.rawData && (
-                          <div>
-                            <h3 className="font-medium mb-2">Raw Data</h3>
-                            <pre className="bg-muted p-4 rounded-lg text-xs overflow-auto">
-                              {JSON.stringify(order.rawData, null, 2)}
-                            </pre>
-                          </div>
-                        )}
-                      </div>
-                    </DialogContent>
-                  </Dialog>
+                  <Button variant="ghost" size="sm" onClick={() => setSelectedOrder(order)}>
+                    View Details
+                  </Button>
                 </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
       </div>
+
+      {data?.pagination && (
+        <div className="flex justify-between items-center mt-4">
+          <div>
+            Showing {((page - 1) * pageSize) + 1} to {Math.min(page * pageSize, data.pagination.total)} of {data.pagination.total} orders
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={page === 1}
+            >
+              Previous
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setPage(p => Math.min(data.pagination.totalPages, p + 1))}
+              disabled={page === data.pagination.totalPages}
+            >
+              Next
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Order Details Modal */}
+      <Dialog open={!!selectedOrder} onOpenChange={() => setSelectedOrder(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Order Details</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <h4 className="font-medium">Order ID</h4>
+              <p>{selectedOrder?.id}</p>
+            </div>
+            <div>
+              <h4 className="font-medium">Customer</h4>
+              <p>{selectedOrder?.customerEmail}</p>
+            </div>
+            <div>
+              <h4 className="font-medium">Status</h4>
+              <p>{selectedOrder?.status}</p>
+            </div>
+            <div>
+              <h4 className="font-medium">Amount</h4>
+              <p>${selectedOrder?.totalPrice}</p>
+            </div>
+            <div>
+              <h4 className="font-medium">Date</h4>
+              <p>{selectedOrder && new Date(selectedOrder.createdAt).toLocaleString()}</p>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
