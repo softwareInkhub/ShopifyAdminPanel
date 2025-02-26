@@ -48,7 +48,7 @@ export function OrdersTable() {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const pageSize = 10;
 
-  const { data, isLoading } = useQuery<OrdersResponse>({
+  const { data, isLoading, error } = useQuery<OrdersResponse>({
     queryKey: ['orders', page, pageSize],
     queryFn: async () => {
       const response = await fetch(`/api/orders?page=${page}&limit=${pageSize}`);
@@ -71,6 +71,10 @@ export function OrdersTable() {
     );
   }
 
+  if (error) {
+    return <p>Error fetching orders: {error.message}</p>;
+  }
+
   return (
     <div className="space-y-4">
       <Table>
@@ -85,7 +89,7 @@ export function OrdersTable() {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {data?.orders.map((order) => (
+          {(data?.orders || []).map((order) => (
             <TableRow key={order.id}>
               <TableCell>{order.id}</TableCell>
               <TableCell>{order.customerEmail}</TableCell>
@@ -93,7 +97,7 @@ export function OrdersTable() {
               <TableCell>
                 {new Intl.NumberFormat('en-US', {
                   style: 'currency',
-                  currency: order.currency
+                  currency: order.currency,
                 }).format(order.totalPrice)}
               </TableCell>
               <TableCell>
@@ -113,25 +117,31 @@ export function OrdersTable() {
         </TableBody>
       </Table>
 
-      <Pagination>
-        <PaginationContent>
-          <PaginationItem>
-            <PaginationPrevious 
-              onClick={() => setPage(p => Math.max(1, p - 1))}
-              disabled={page === 1}
-            />
-          </PaginationItem>
-          <PaginationItem>
-            Page {page} of {data?.pagination.totalPages}
-          </PaginationItem>
-          <PaginationItem>
-            <PaginationNext
-              onClick={() => setPage(p => Math.min(data?.pagination.totalPages || p, p + 1))}
-              disabled={page === data?.pagination.totalPages}
-            />
-          </PaginationItem>
-        </PaginationContent>
-      </Pagination>
+      {data?.pagination && (
+        <Pagination>
+          <PaginationContent>
+            <PaginationItem>
+              <PaginationPrevious
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+              />
+            </PaginationItem>
+            <PaginationItem>
+              Page {page} of {data.pagination.totalPages}
+            </PaginationItem>
+            <PaginationItem>
+              <PaginationNext
+                onClick={() =>
+                  setPage((p) =>
+                    Math.min(data.pagination.totalPages, p + 1)
+                  )
+                }
+                disabled={page === data.pagination.totalPages}
+              />
+            </PaginationItem>
+          </PaginationContent>
+        </Pagination>
+      )}
 
       <Dialog open={!!selectedOrder} onOpenChange={() => setSelectedOrder(null)}>
         <DialogContent>
@@ -154,16 +164,18 @@ export function OrdersTable() {
             <div>
               <h4 className="font-medium">Amount</h4>
               <p>
-                {selectedOrder && new Intl.NumberFormat('en-US', {
-                  style: 'currency',
-                  currency: selectedOrder.currency
-                }).format(selectedOrder.totalPrice)}
+                {selectedOrder &&
+                  new Intl.NumberFormat('en-US', {
+                    style: 'currency',
+                    currency: selectedOrder.currency,
+                  }).format(selectedOrder.totalPrice)}
               </p>
             </div>
             <div>
               <h4 className="font-medium">Date</h4>
               <p>
-                {selectedOrder && new Date(selectedOrder.createdAt).toLocaleString()}
+                {selectedOrder &&
+                  new Date(selectedOrder.createdAt).toLocaleString()}
               </p>
             </div>
           </div>

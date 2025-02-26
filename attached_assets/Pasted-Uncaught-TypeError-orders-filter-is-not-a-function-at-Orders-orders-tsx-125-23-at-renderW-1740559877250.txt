@@ -1,0 +1,36 @@
+Uncaught TypeError: orders.filter is not a function
+    at Orders (orders.tsx:125:23)
+    at renderWithHooks (chunk-RPCDYKBN.js?v=e4ea6401:11548:26)
+    at updateFunctionComponent (chunk-RPCDYKBN.js?v=e4ea6401:14582:28)
+    at beginWork (chunk-RPCDYKBN.js?v=e4ea6401:15924:22)
+    at HTMLUnknownElement.callCallback2 (chunk-RPCDYKBN.js?v=e4ea6401:3674:22)
+    at Object.invokeGuardedCallbackDev (chunk-RPCDYKBN.js?v=e4ea6401:3699:24)
+    at invokeGuardedCallback (chunk-RPCDYKBN.js?v=e4ea6401:3733:39)
+    at beginWork$1 (chunk-RPCDYKBN.js?v=e4ea6401:19765:15)
+    at performUnitOfWork (chunk-RPCDYKBN.js?v=e4ea6401:19198:20)
+    at workLoopSync (chunk-RPCDYKBN.js?v=e4ea6401:19137:13)Understand this errorAI
+chunk-RPCDYKBN.js?v=e4ea6401:14032 The above error occurred in the <Orders> component:
+
+    at Orders (https://9e927286-d082-4964-ae2f-331312026fe0-00-2eigbdlakc55s.riker.replit.dev/src/pages/orders.tsx:74:21)
+    at Route (https://9e927286-d082-4964-ae2f-331312026fe0-00-2eigbdlakc55s.riker.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/wouter.js?v=e4ea6401:265:16)
+    at Switch (https://9e927286-d082-4964-ae2f-331312026fe0-00-2eigbdlakc55s.riker.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/wouter.js?v=e4ea6401:321:17)
+    at main
+    at div
+    at Router
+    at QueryClientProvider (https://9e927286-d082-4964-ae2f-331312026fe0-00-2eigbdlakc55s.riker.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/@tanstack_react-query.js?v=e4ea6401:2805:3)
+    at App
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries.
+logCapturedError @ chunk-RPCDYKBN.js?v=e4ea6401:14032Understand this errorAI
+chunk-RPCDYKBN.js?v=e4ea6401:9129 Uncaught TypeError: orders.filter is not a function
+    at Orders (orders.tsx:125:23)
+    at renderWithHooks (chunk-RPCDYKBN.js?v=e4ea6401:11548:26)
+    at updateFunctionComponent (chunk-RPCDYKBN.js?v=e4ea6401:14582:28)
+    at beginWork (chunk-RPCDYKBN.js?v=e4ea6401:15924:22)
+    at beginWork$1 (chunk-RPCDYKBN.js?v=e4ea6401:19753:22)
+    at performUnitOfWork (chunk-RPCDYKBN.js?v=e4ea6401:19198:20)
+    at workLoopSync (chunk-RPCDYKBN.js?v=e4ea6401:19137:13)
+    at renderRootSync (chunk-RPCDYKBN.js?v=e4ea6401:19116:15)
+    at recoverFromConcurrentError (chunk-RPCDYKBN.js?v=e4ea6401:18736:28)
+    at performSyncWorkOnRoot (chunk-RPCDYKBN.js?v=e4ea6401:18879:28)Understand this errorAI
