@@ -4,90 +4,94 @@ import { storage } from "./storage";
 import { addJob, initializeQueue } from "./queue";
 import { z } from "zod";
 import { shopifyClient, TEST_SHOP_QUERY } from "./shopify";
-import { insertOrderSchema, insertProductSchema, type JobConfig } from "@shared/schema";
+import { insertOrderSchema, insertProductSchema } from "@shared/schema";
 import { db } from "./firebase";
 import Redis from 'redis';
 import { WebSocketServer } from 'ws';
+import { logger } from './logger';
 
-// Initialize Redis client with retry logic and memory fallback
+// Initialize Redis client with optimized connection handling
 class CacheManager {
   private memoryCache = new Map<string, string>();
   private redisClient: Redis.RedisClientType | null = null;
   private isRedisConnected = false;
-  private connectRetryCount = 0;
-  private readonly MAX_RETRIES = 5;
+  private readonly MAX_RETRIES = 1;
+  private readonly CONNECT_TIMEOUT = 500;
 
-  async initialize() {
+  initialize() {
     try {
-      console.log('Initializing cache manager...');
+      logger.cache.info('Initializing cache manager');
 
       this.redisClient = Redis.createClient({
         url: process.env.REDIS_URL || 'redis://localhost:6379',
         socket: {
-          connectTimeout: 5000,
+          connectTimeout: this.CONNECT_TIMEOUT,
           reconnectStrategy: (retries) => {
-            this.connectRetryCount = retries;
             if (retries > this.MAX_RETRIES) {
-              console.log('Redis connection failed, using memory cache');
+              logger.cache.info('Redis connection failed, using memory cache');
               this.isRedisConnected = false;
               return false;
             }
-            return Math.min(retries * 100, 3000);
+            return 200;
           }
-        },
-        database: 0 // Use database 0 for better performance
+        }
       });
 
-      this.redisClient.on('error', (err) => {
-        console.log('Redis error, using memory cache:', err.message);
+      this.redisClient.on('error', () => {
+        logger.cache.error('Redis error');
         this.isRedisConnected = false;
       });
 
       this.redisClient.on('connect', () => {
-        console.log('Redis connected successfully');
+        logger.cache.info('Redis connected successfully');
         this.isRedisConnected = true;
-        this.connectRetryCount = 0;
+
+        // Configure Redis asynchronously
+        if (this.redisClient) {
+          this.redisClient.configSet('maxmemory-policy', 'allkeys-lru')
+            .catch(() => logger.cache.error('Failed to set Redis maxmemory-policy'));
+          this.redisClient.configSet('maxmemory', '100mb')
+            .catch(() => logger.cache.error('Failed to set Redis maxmemory'));
+        }
       });
 
-      await this.redisClient.connect();
+      // Non-blocking connection
+      this.redisClient.connect()
+        .catch(() => {
+          logger.cache.info('Redis connection failed, using memory cache');
+          this.isRedisConnected = false;
+        });
 
-      // Configure Redis for better performance
-      if (this.isRedisConnected && this.redisClient) {
-        await this.redisClient.configSet('maxmemory-policy', 'allkeys-lru');
-        await this.redisClient.configSet('maxmemory', '100mb');
-      }
     } catch (error) {
-      console.log('Cache manager initialization error:', error);
+      logger.cache.error('Cache manager initialization error');
       this.isRedisConnected = false;
     }
   }
 
   async get(key: string): Promise<string | null> {
     try {
-      // Try memory cache first for better performance
       const memoryValue = this.memoryCache.get(key);
       if (memoryValue) {
+        logger.cache.debug('Memory cache hit');
         return memoryValue;
       }
 
       if (this.isRedisConnected && this.redisClient) {
         const value = await this.redisClient.get(key);
         if (value) {
-          // Update memory cache
           this.memoryCache.set(key, value);
+          logger.cache.debug('Redis cache hit');
           return value;
         }
       }
     } catch (error) {
-      console.log('Cache get error, using memory cache:', error);
+      logger.cache.error('Cache get error');
     }
-
     return null;
   }
 
   async set(key: string, value: string, ttl: number = 300): Promise<void> {
     try {
-      // Set in memory first
       this.memoryCache.set(key, value);
       setTimeout(() => this.memoryCache.delete(key), ttl * 1000);
 
@@ -95,7 +99,7 @@ class CacheManager {
         await this.redisClient.setEx(key, ttl, value);
       }
     } catch (error) {
-      console.log('Cache set error:', error);
+      logger.cache.error('Cache set error');
     }
   }
 
@@ -121,7 +125,7 @@ class CacheManager {
         };
       }
     } catch (error) {
-      console.log('Redis metrics error, using memory metrics:', error);
+      logger.cache.error('Redis metrics error');
     }
 
     return {
@@ -136,16 +140,16 @@ class CacheManager {
 }
 
 const cacheManager = new CacheManager();
-console.log('Starting cache manager initialization...');
-cacheManager.initialize().catch(console.error);
+logger.cache.info('Starting cache manager initialization');
+cacheManager.initialize();
 
 export async function registerRoutes(app: Express) {
   // Initialize job queue
   try {
     await initializeQueue();
-    console.log('Job queue initialized');
+    logger.queue.info('Job queue initialized');
   } catch (error) {
-    console.error('Failed to initialize job queue:', error);
+    logger.queue.error('Failed to initialize job queue', error);
   }
 
   // Test Shopify connection
@@ -154,7 +158,7 @@ export async function registerRoutes(app: Express) {
       const data = await shopifyClient.request(TEST_SHOP_QUERY);
       res.json({ status: 'success', data });
     } catch (error: any) {
-      console.error('Shopify connection error:', error);
+      logger.shopify.error('Shopify connection error', error);
       res.status(500).json({
         status: 'error',
         message: error.message,
@@ -172,7 +176,7 @@ export async function registerRoutes(app: Express) {
       // Try cache first
       const cachedData = await cacheManager.get(cacheKey);
       if (cachedData) {
-        console.log('Cache hit for orders query');
+        logger.orders.debug('Cache hit for orders query');
         return res.json(JSON.parse(cachedData));
       }
 
@@ -242,10 +246,10 @@ export async function registerRoutes(app: Express) {
       // Cache the results
       await cacheManager.set(cacheKey, JSON.stringify(result));
 
-      console.log(`Retrieved ${orders.length} orders from Firebase`);
+      logger.orders.info(`Retrieved ${orders.length} orders from Firebase`);
       res.json(result);
     } catch (error: any) {
-      console.error('Orders fetch error:', error);
+      logger.orders.error('Orders fetch error', error);
       res.status(500).json({
         status: 'error',
         message: error.message,
@@ -263,7 +267,7 @@ export async function registerRoutes(app: Express) {
       // Try cache first
       const cachedData = await cacheManager.get(cacheKey);
       if (cachedData) {
-        console.log('Cache hit for products query');
+        logger.products.debug('Cache hit for products query');
         return res.json(JSON.parse(cachedData));
       }
 
@@ -317,10 +321,10 @@ export async function registerRoutes(app: Express) {
       // Cache the results
       await cacheManager.set(cacheKey, JSON.stringify(products));
 
-      console.log(`Retrieved ${products.length} products from Firebase`);
+      logger.products.info(`Retrieved ${products.length} products from Firebase`);
       res.json(products);
     } catch (error: any) {
-      console.error('Products fetch error:', error);
+      logger.products.error('Products fetch error', error);
       res.status(500).json({
         status: 'error',
         message: error.message,
@@ -335,7 +339,7 @@ export async function registerRoutes(app: Express) {
       const metrics = await cacheManager.getMetrics();
       res.json(metrics);
     } catch (error: any) {
-      console.error('Cache metrics error:', error);
+      logger.cache.error('Cache metrics error', error);
       res.status(500).json({
         status: 'error',
         message: error.message,
@@ -350,7 +354,7 @@ export async function registerRoutes(app: Express) {
       const order = await storage.updateOrder(parseInt(req.params.id), req.body);
       res.json(order);
     } catch (error: any) {
-      console.error('Order update error:', error);
+      logger.orders.error('Order update error', error);
       res.status(500).json({ message: error.message });
     }
   });
@@ -362,10 +366,10 @@ export async function registerRoutes(app: Express) {
       // Validate product data
       const productData = insertProductSchema.parse(req.body);
       const product = await storage.createProduct(productData);
-      console.log('Created new product:', product);
+      logger.products.info('Created new product', product);
       res.json(product);
     } catch (error: any) {
-      console.error('Product creation error:', error);
+      logger.products.error('Product creation error', error);
       res.status(500).json({ message: error.message });
     }
   });
@@ -377,12 +381,12 @@ export async function registerRoutes(app: Express) {
 
       // Update the product
       const product = await storage.updateProduct(parseInt(req.params.id), productData);
-      console.log('Updated product:', product);
+      logger.products.info('Updated product', product);
 
       // Return the updated product
       res.json(product);
     } catch (error: any) {
-      console.error('Product update error:', error);
+      logger.products.error('Product update error', error);
       res.status(500).json({
         message: error.message,
         details: error instanceof z.ZodError ? error.errors : undefined
@@ -393,10 +397,10 @@ export async function registerRoutes(app: Express) {
   app.delete("/api/products/:id", async (req, res) => {
     try {
       await storage.deleteProduct(parseInt(req.params.id));
-      console.log('Deleted product:', req.params.id);
+      logger.products.info('Deleted product', req.params.id);
       res.status(204).end();
     } catch (error: any) {
-      console.error('Product deletion error:', error);
+      logger.products.error('Product deletion error', error);
       res.status(500).json({ message: error.message });
     }
   });
@@ -408,10 +412,10 @@ export async function registerRoutes(app: Express) {
       if (!product) {
         return res.status(404).json({ message: 'Product not found' });
       }
-      console.log('Fetched product:', product.id);
+      logger.products.info('Fetched product', product.id);
       res.json(product);
     } catch (error: any) {
-      console.error('Product fetch error:', error);
+      logger.products.error('Product fetch error', error);
       res.status(500).json({ message: error.message });
     }
   });
@@ -422,7 +426,7 @@ export async function registerRoutes(app: Express) {
       const jobs = await storage.listJobs();
       res.json(jobs);
     } catch (error: any) {
-      console.error('Jobs fetch error:', error);
+      logger.jobs.error('Jobs fetch error', error);
       res.status(500).json({ message: error.message });
     }
   });
@@ -454,7 +458,7 @@ export async function registerRoutes(app: Express) {
 
       res.json(job);
     } catch (error: any) {
-      console.error('Job creation error:', error);
+      logger.jobs.error('Job creation error', error);
       res.status(500).json({ message: error.message });
     }
   });
@@ -465,7 +469,7 @@ export async function registerRoutes(app: Express) {
       const batches = await storage.listJobBatches(parseInt(req.params.jobId));
       res.json(batches);
     } catch (error: any) {
-      console.error('Job batches fetch error:', error);
+      logger.jobs.error('Job batches fetch error', error);
       res.status(500).json({ message: error.message });
     }
   });
@@ -476,7 +480,7 @@ export async function registerRoutes(app: Express) {
       const summary = await storage.getJobSummary(parseInt(req.params.jobId));
       res.json(summary);
     } catch (error: any) {
-      console.error('Job summary fetch error:', error);
+      logger.jobs.error('Job summary fetch error', error);
       res.status(500).json({ message: error.message });
     }
   });
@@ -503,7 +507,7 @@ export async function registerRoutes(app: Express) {
 
       res.json(report);
     } catch (error: any) {
-      console.error('Job report generation error:', error);
+      logger.jobs.error('Job report generation error', error);
       res.status(500).json({ message: error.message });
     }
   });
@@ -543,7 +547,7 @@ export async function registerRoutes(app: Express) {
         config
       });
     } catch (error: any) {
-      console.error('Job creation error:', error);
+      logger.jobs.error('Job creation error', error);
       res.status(500).json({
         status: 'error',
         message: error.message,
@@ -577,7 +581,7 @@ export async function registerRoutes(app: Express) {
         lastSync: checkpointData?.lastSyncTime
       });
     } catch (error: any) {
-      console.error('Job status fetch error:', error);
+      logger.jobs.error('Job status fetch error', error);
       res.status(500).json({
         status: 'error',
         message: error.message,
@@ -603,7 +607,7 @@ export async function registerRoutes(app: Express) {
         lastOrderId: checkpointData?.lastOrderId
       });
     } catch (error: any) {
-      console.error('Jobs list error:', error);
+      logger.jobs.error('Jobs list error', error);
       res.status(500).json({
         status: 'error',
         message: error.message,
@@ -634,7 +638,7 @@ export async function registerRoutes(app: Express) {
         message: 'Job cancelled successfully'
       });
     } catch (error: any) {
-      console.error('Job cancellation error:', error);
+      logger.jobs.error('Job cancellation error', error);
       res.status(500).json({
         status: 'error',
         message: error.message,
@@ -690,7 +694,7 @@ export async function registerRoutes(app: Express) {
 
       res.json(analytics);
     } catch (error: any) {
-      console.error('Analytics generation error:', error);
+      logger.analytics.error('Analytics generation error', error);
       res.status(500).json({ message: error.message });
     }
   });
@@ -706,7 +710,7 @@ export async function registerRoutes(app: Express) {
       };
       res.json(checkpoint);
     } catch (error: any) {
-      console.error('Checkpoint fetch error:', error);
+      logger.sync.error('Checkpoint fetch error', error);
       res.status(500).json({
         status: 'error',
         message: error.message
@@ -741,7 +745,7 @@ export async function registerRoutes(app: Express) {
         checkpoint: checkpointData
       });
     } catch (error: any) {
-      console.error('Resume sync error:', error);
+      logger.sync.error('Resume sync error', error);
       res.status(500).json({
         status: 'error',
         message: error.message
@@ -761,7 +765,7 @@ export async function registerRoutes(app: Express) {
 
       res.json(healthData);
     } catch (error: any) {
-      console.error('Health summary fetch error:', error);
+      logger.health.error('Health summary fetch error', error);
       res.status(500).json({
         status: 'error',
         message: error.message
@@ -781,7 +785,7 @@ export async function registerRoutes(app: Express) {
 
       res.json(metrics);
     } catch (error: any) {
-      console.error('Performance metrics fetch error:', error);
+      logger.analytics.error('Performance metrics fetch error', error);
       res.status(500).json({
         status: 'error',
         message: error.message
@@ -802,7 +806,7 @@ export async function registerRoutes(app: Express) {
 
       res.json(metrics);
     } catch (error: any) {
-      console.error('Sync metrics fetch error:', error);
+      logger.sync.error('Sync metrics fetch error', error);
       res.status(500).json({
         status: 'error',
         message: error.message
@@ -822,7 +826,7 @@ export async function registerRoutes(app: Express) {
       // Check cache first
       const cachedResult = await cacheManager.get(cacheKey);
       if (cachedResult) {
-        console.log('Cache hit for search query');
+        logger.search.debug('Cache hit for search query');
         return res.json(JSON.parse(cachedResult));
       }
 
@@ -834,7 +838,7 @@ export async function registerRoutes(app: Express) {
 
       res.json(searchResults);
     } catch (error: any) {
-      console.error('Search error:', error);
+      logger.search.error('Search error', error);
       res.status(500).json({ message: error.message });
     }
   });
@@ -846,14 +850,8 @@ export async function registerRoutes(app: Express) {
     server: httpServer,
     path: '/ws',
     perMessageDeflate: {
-      zlibDeflateOptions: {
-        chunkSize: 1024,
-        memLevel: 7,
-        level: 3
-      },
-      zlibInflateOptions: {
-        chunkSize: 10 * 1024
-      },
+      zlibDeflateOptions: { chunkSize: 1024, memLevel: 7, level: 3 },
+      zlibInflateOptions: { chunkSize: 10 * 1024 },
       clientNoContextTakeover: true,
       serverNoContextTakeover: true,
       serverMaxWindowBits: 10,
@@ -864,17 +862,15 @@ export async function registerRoutes(app: Express) {
 
   // WebSocket connection handling
   wss.on('connection', (ws, req) => {
-    console.log('WebSocket client connected:', req.url);
-
     const clientId = Math.random().toString(36).substring(7);
-    console.log(`Client ${clientId} connected`);
+    logger.server.info(`WebSocket client ${clientId} connected`);
 
     ws.on('error', (error) => {
-      console.error(`WebSocket error for client ${clientId}:`, error);
+      logger.server.error(`WebSocket error for client ${clientId}`);
     });
 
     ws.on('close', (code, reason) => {
-      console.log(`Client ${clientId} disconnected. Code: ${code}, Reason: ${reason}`);
+      logger.server.info(`Client ${clientId} disconnected. Code: ${code}`);
     });
 
     // Send initial connection success message
@@ -892,8 +888,7 @@ export async function registerRoutes(app: Express) {
     }, 30000);
 
     ws.on('pong', () => {
-      // Client responded to ping
-      console.log(`Client ${clientId} is alive`);
+      logger.server.debug(`Client ${clientId} heartbeat`);
     });
 
     ws.on('close', () => {
@@ -903,7 +898,7 @@ export async function registerRoutes(app: Express) {
 
   // Handle WebSocket server errors
   wss.on('error', (error) => {
-    console.error('WebSocket server error:', error);
+    logger.server.error('WebSocket server error');
   });
 
   return httpServer;
