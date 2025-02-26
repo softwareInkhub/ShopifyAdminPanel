@@ -83,12 +83,7 @@ export default function Products() {
   // Fetch products
   const { data, isLoading } = useQuery<{
     products: Product[];
-    pagination: {
-      total: number;
-      page: number;
-      pageSize: number;
-      totalPages: number;
-    };
+    total: number;
   }>({
     queryKey: ["/api/products", search, filters],
     queryFn: async () => {
@@ -216,16 +211,16 @@ export default function Products() {
   // Calculate statistics from the products array
   const stats = data?.products
     ? {
-        total: data.products.length,
+        total: data.total,
         active: data.products.filter((p) => p.status === "active").length,
         totalValue: data.products.reduce(
           (sum, p) => sum + parseFloat(p.price || '0'),
           0
-        ),
+        ).toFixed(2),
         avgPrice: data.products.length
-          ? data.products.reduce((sum, p) => sum + parseFloat(p.price || '0'), 0) /
-            data.products.length
-          : 0,
+          ? (data.products.reduce((sum, p) => sum + parseFloat(p.price || '0'), 0) /
+            data.products.length).toFixed(2)
+          : "0.00",
       }
     : null;
 
@@ -397,7 +392,7 @@ export default function Products() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              ${stats?.totalValue.toFixed(2) || "0.00"}
+              ${stats?.totalValue || "0.00"}
             </div>
           </CardContent>
         </Card>
@@ -407,7 +402,7 @@ export default function Products() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              ${stats?.avgPrice.toFixed(2) || "0.00"}
+              ${stats?.avgPrice || "0.00"}
             </div>
           </CardContent>
         </Card>

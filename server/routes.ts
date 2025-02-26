@@ -41,10 +41,10 @@ export async function registerRoutes(app: Express) {
   app.get("/api/orders", async (req, res) => {
     try {
       logger.server.info('Fetching orders...');
-      const { status, search, from, to, page = 1, limit = 10 } = req.query;
+      const { status, search } = req.query;
 
       // Try cache first
-      const cacheKey = `orders:${JSON.stringify({ status, search, from, to, page, limit })}`;
+      const cacheKey = `orders:${JSON.stringify({ status, search })}`;
       const cachedData = await cacheManager.get(cacheKey);
       if (cachedData) {
         logger.server.info('Returning cached orders data');
@@ -64,7 +64,7 @@ export async function registerRoutes(app: Express) {
           orders.push({
             id: doc.id,
             customerEmail: data.customerEmail || 'N/A',
-            totalPrice: parseFloat(data.totalPrice || 0),
+            totalPrice: parseFloat(data.totalPrice || 0).toFixed(2),
             status: data.status || 'UNFULFILLED',
             createdAt: data.createdAt?.toDate?.() || new Date(data.createdAt) || new Date(),
             currency: data.currency || 'USD'
@@ -87,24 +87,14 @@ export async function registerRoutes(app: Express) {
         );
       }
 
-      // Apply pagination
-      const startIndex = (Number(page) - 1) * Number(limit);
-      const endIndex = startIndex + Number(limit);
-      const paginatedOrders = orders.slice(startIndex, endIndex);
-
       const result = {
-        orders: paginatedOrders,
-        pagination: {
-          total: orders.length,
-          page: Number(page),
-          pageSize: Number(limit),
-          totalPages: Math.ceil(orders.length / Number(limit))
-        }
+        orders,
+        total: orders.length
       };
 
       // Cache the results
       await cacheManager.set(cacheKey, JSON.stringify(result));
-      logger.server.info(`Processed and returning ${paginatedOrders.length} orders`);
+      logger.server.info(`Processed and returning ${orders.length} orders`);
 
       res.json(result);
     } catch (error) {
@@ -120,10 +110,10 @@ export async function registerRoutes(app: Express) {
   app.get("/api/products", async (req, res) => {
     try {
       logger.server.info('Fetching products...');
-      const { search, category, status, page = 1, limit = 10 } = req.query;
+      const { search, category, status } = req.query;
 
       // Try cache first
-      const cacheKey = `products:${JSON.stringify({ search, category, status, page, limit })}`;
+      const cacheKey = `products:${JSON.stringify({ search, category, status })}`;
       const cachedData = await cacheManager.get(cacheKey);
       if (cachedData) {
         logger.server.info('Returning cached products data');
@@ -142,12 +132,14 @@ export async function registerRoutes(app: Express) {
           const data = doc.data();
           products.push({
             id: doc.id,
+            shopifyId: data.shopifyId || null,
             title: data.title || 'Untitled Product',
             description: data.description || '',
-            price: parseFloat(data.price || 0),
+            price: parseFloat(data.price || 0).toFixed(2),
             status: data.status || 'DRAFT',
             category: data.category || 'Uncategorized',
-            createdAt: data.createdAt?.toDate?.() || new Date(data.createdAt) || new Date()
+            createdAt: data.createdAt?.toDate?.() || new Date(data.createdAt) || new Date(),
+            rawData: data.rawData || {}
           });
         } catch (error) {
           logger.server.error(`Error transforming product ${doc.id}:`, error);
@@ -171,24 +163,14 @@ export async function registerRoutes(app: Express) {
         );
       }
 
-      // Apply pagination
-      const startIndex = (Number(page) - 1) * Number(limit);
-      const endIndex = startIndex + Number(limit);
-      const paginatedProducts = products.slice(startIndex, endIndex);
-
       const result = {
-        products: paginatedProducts,
-        pagination: {
-          total: products.length,
-          page: Number(page),
-          pageSize: Number(limit),
-          totalPages: Math.ceil(products.length / Number(limit))
-        }
+        products,
+        total: products.length
       };
 
       // Cache the results
       await cacheManager.set(cacheKey, JSON.stringify(result));
-      logger.server.info(`Processed and returning ${paginatedProducts.length} products`);
+      logger.server.info(`Processed and returning ${products.length} products`);
 
       res.json(result);
     } catch (error) {
