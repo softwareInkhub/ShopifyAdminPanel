@@ -1,7 +1,6 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
-import { setupWebSocket } from "./websocket";
 import { db } from "./firebase";
 
 const app = express();
@@ -27,11 +26,6 @@ app.use((req, res, next) => {
       if (capturedJsonResponse) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
-
-      if (logLine.length > 80) {
-        logLine = logLine.slice(0, 79) + "…";
-      }
-
       log(logLine);
     }
   });
@@ -39,7 +33,22 @@ app.use((req, res, next) => {
   next();
 });
 
-// Health check endpoint
+// Enhanced error handling middleware
+app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  console.error('Unhandled error:', err);
+  const status = err.status || err.statusCode || 500;
+  const message = err.message || "Internal Server Error";
+  const details = err.stack || '';
+
+  res.status(status).json({ 
+    status: 'error',
+    message,
+    details,
+    timestamp: new Date()
+  });
+});
+
+// Health check endpoint with detailed diagnostics
 app.get("/health", async (_req, res) => {
   try {
     // Test Firebase connection
@@ -61,37 +70,30 @@ app.get("/health", async (_req, res) => {
     res.status(500).json({
       status: 'unhealthy',
       timestamp: new Date(),
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.message : 'Unknown error',
+      details: error instanceof Error ? error.stack : undefined
     });
   }
 });
 
 (async () => {
   try {
+    console.log('Starting server initialization...');
+
+    // Register routes and get HTTP server
     const server = await registerRoutes(app);
+    console.log('Routes registered successfully');
 
-    // Set up WebSocket server for real-time updates
-    setupWebSocket(server);
-
-    // Global error handler
-    app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-      console.error('Unhandled error:', err);
-      const status = err.status || err.statusCode || 500;
-      const message = err.message || "Internal Server Error";
-
-      res.status(status).json({ 
-        status: 'error',
-        message,
-        timestamp: new Date()
-      });
-    });
-
+    // Set up static file serving or Vite middleware
     if (app.get("env") === "development") {
       await setupVite(app, server);
+      console.log('Vite middleware configured for development');
     } else {
       serveStatic(app);
+      console.log('Static file serving configured for production');
     }
 
+    // Start the server
     const port = 5000;
     server.listen({
       port,
@@ -100,6 +102,13 @@ app.get("/health", async (_req, res) => {
     }, () => {
       log(`Server started successfully and serving on port ${port}`);
     });
+
+    // Error handling for the server
+    server.on('error', (error: Error) => {
+      console.error('Server error:', error);
+      process.exit(1);
+    });
+
   } catch (error) {
     console.error('Failed to start server:', error);
     process.exit(1);
