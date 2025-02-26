@@ -101,8 +101,12 @@ const CACHE_TTL = 300; // 5 minutes
 // Helper function to fetch a single page of orders
 async function fetchOrdersPage(page: number, limit: number, status?: string) {
   try {
+    logger.server.info('Starting to fetch orders page...');
     const db = await getDb();
     let query = db.collection('orders');
+
+    // Log the initial query parameters
+    logger.server.info(`Query params: page=${page}, limit=${limit}, status=${status}`);
 
     if (status && status !== 'all') {
       query = query.where('status', '==', status);
@@ -111,6 +115,7 @@ async function fetchOrdersPage(page: number, limit: number, status?: string) {
     // Get total count first
     const totalSnapshot = await query.get();
     const total = totalSnapshot.size;
+    logger.server.info(`Total orders in collection: ${total}`);
 
     // Apply ordering and pagination
     query = query.orderBy('createdAt', 'desc')
@@ -124,12 +129,12 @@ async function fetchOrdersPage(page: number, limit: number, status?: string) {
     ordersSnapshot.forEach((doc) => {
       try {
         const data = doc.data();
-        logger.server.debug(`Processing order ${doc.id}:`, data);
+        logger.server.info(`Order data for ${doc.id}:`, JSON.stringify(data, null, 2));
 
         orders.push({
           id: doc.id,
           customerEmail: data.customerEmail || 'N/A',
-          customerName: data.customerName,
+          customerName: data.customerName || 'Unknown Customer',
           totalPrice: parseFloat(data.totalPrice || 0).toFixed(2),
           tax: data.tax ? parseFloat(data.tax).toFixed(2) : undefined,
           status: data.status || 'UNFULFILLED',
@@ -154,6 +159,7 @@ async function fetchOrdersPage(page: number, limit: number, status?: string) {
     });
 
     logger.server.info(`Successfully processed ${orders.length} orders`);
+    logger.server.info('Sample order data:', JSON.stringify(orders[0], null, 2));
 
     return {
       orders,
