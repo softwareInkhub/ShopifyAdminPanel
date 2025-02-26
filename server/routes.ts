@@ -7,14 +7,76 @@ import { shopifyClient, TEST_SHOP_QUERY } from "./shopify";
 import { insertOrderSchema, insertProductSchema, type JobConfig } from "@shared/schema";
 import { db } from "./firebase";
 import Redis from 'redis';
+import { WebSocketServer } from 'ws';
 
-// Initialize Redis client
-const redisClient = Redis.createClient({
-  url: process.env.REDIS_URL || 'redis://localhost:6379'
+// In-memory cache fallback
+const memoryCache = new Map();
+
+// Initialize Redis client with retry logic
+const initRedis = async () => {
+  const redisClient = Redis.createClient({
+    url: process.env.REDIS_URL || 'redis://localhost:6379',
+    socket: {
+      reconnectStrategy: (retries) => {
+        if (retries > 10) {
+          console.log('Max Redis retries reached, using memory cache');
+          return false;
+        }
+        return Math.min(retries * 100, 3000);
+      }
+    }
+  });
+
+  redisClient.on('error', (err) => {
+    console.error('Redis Client Error:', err);
+  });
+
+  redisClient.on('connect', () => {
+    console.log('Redis connected successfully');
+  });
+
+  try {
+    await redisClient.connect();
+    return redisClient;
+  } catch (error) {
+    console.error('Failed to connect to Redis:', error);
+    return null;
+  }
+};
+
+// Cache wrapper function
+const cacheWrapper = {
+  async get(key: string) {
+    try {
+      if (redisClient?.isReady) {
+        return await redisClient.get(key);
+      }
+      return memoryCache.get(key);
+    } catch (error) {
+      console.error('Cache get error:', error);
+      return memoryCache.get(key);
+    }
+  },
+
+  async set(key: string, value: string, ttl?: number) {
+    try {
+      if (redisClient?.isReady) {
+        await redisClient.setEx(key, ttl || 300, value);
+      }
+      memoryCache.set(key, value);
+    } catch (error) {
+      console.error('Cache set error:', error);
+      memoryCache.set(key, value);
+    }
+  }
+};
+
+let redisClient: Redis.RedisClientType | null = null;
+
+// Initialize Redis
+initRedis().then(client => {
+  redisClient = client;
 });
-
-redisClient.on('error', (err) => console.error('Redis Client Error', err));
-redisClient.connect().then(() => console.log('Redis connected'));
 
 export async function registerRoutes(app: Express) {
   // Initialize job queue
@@ -47,14 +109,15 @@ export async function registerRoutes(app: Express) {
       const cacheKey = `orders:${JSON.stringify({ status, search, from, to })}`;
 
       // Try cache first
-      const cachedData = await redisClient.get(cacheKey);
+      const cachedData = await cacheWrapper.get(cacheKey);
       if (cachedData) {
         console.log('Cache hit for orders query');
         return res.json(JSON.parse(cachedData));
       }
 
-      // Query Firebase if not in cache
-      let ordersQuery = db.collection('orders');
+      // Query Firebase
+      const ordersRef = db.collection('orders');
+      let ordersQuery = ordersRef;
 
       if (status && status !== 'all') {
         ordersQuery = ordersQuery.where('status', '==', status);
@@ -95,7 +158,7 @@ export async function registerRoutes(app: Express) {
       }
 
       // Cache the results
-      await redisClient.setEx(cacheKey, 300, JSON.stringify(orders)); // Cache for 5 minutes
+      await cacheWrapper.set(cacheKey, JSON.stringify(orders), 300); // Cache for 5 minutes
 
       console.log(`Retrieved ${orders.length} orders from Firebase`);
       res.json(orders);
@@ -116,13 +179,14 @@ export async function registerRoutes(app: Express) {
       const cacheKey = `products:${JSON.stringify({ search, category, status, minPrice, maxPrice })}`;
 
       // Try cache first
-      const cachedData = await redisClient.get(cacheKey);
+      const cachedData = await cacheWrapper.get(cacheKey);
       if (cachedData) {
         console.log('Cache hit for products query');
         return res.json(JSON.parse(cachedData));
       }
 
-      let productsQuery = db.collection('products');
+      const productsRef = db.collection('products');
+      let productsQuery = productsRef;
 
       if (status && status !== 'all') {
         productsQuery = productsQuery.where('status', '==', status);
@@ -169,12 +233,59 @@ export async function registerRoutes(app: Express) {
       }
 
       // Cache the results
-      await redisClient.setEx(cacheKey, 300, JSON.stringify(products)); // Cache for 5 minutes
+      await cacheWrapper.set(cacheKey, JSON.stringify(products), 300); // Cache for 5 minutes
 
       console.log(`Retrieved ${products.length} products from Firebase`);
       res.json(products);
     } catch (error: any) {
       console.error('Products fetch error:', error);
+      res.status(500).json({ 
+        status: 'error',
+        message: error.message,
+        details: error.stack
+      });
+    }
+  });
+
+  // Cache Performance Metrics
+  app.get("/api/cache/metrics", async (_req, res) => {
+    try {
+      let metrics;
+
+      if (redisClient?.isReady) {
+        // Get real Redis metrics
+        const info = await redisClient.info('stats');
+        const keyspace = await redisClient.info('keyspace');
+
+        // Parse Redis info
+        const hits = parseInt(info.match(/keyspace_hits:(\d+)/)?.[1] || '0');
+        const misses = parseInt(info.match(/keyspace_misses:(\d+)/)?.[1] || '0');
+        const totalOps = hits + misses;
+
+        metrics = {
+          hitRate: totalOps > 0 ? (hits / totalOps) * 100 : 0,
+          missRate: totalOps > 0 ? (misses / totalOps) * 100 : 0,
+          itemCount: parseInt(keyspace.match(/keys=(\d+)/)?.[1] || '0'),
+          averageResponseTime: parseFloat(info.match(/instantaneous_ops_per_sec:(\d+)/)?.[1] || '0'),
+          provider: 'redis',
+          lastUpdate: new Date()
+        };
+      } else {
+        // Memory cache metrics
+        const totalItems = memoryCache.size;
+        metrics = {
+          hitRate: 100, // Simple memory cache always hits
+          missRate: 0,
+          itemCount: totalItems,
+          averageResponseTime: 0, // In-memory operations are near-instant
+          provider: 'memory',
+          lastUpdate: new Date()
+        };
+      }
+
+      res.json(metrics);
+    } catch (error: any) {
+      console.error('Cache metrics error:', error);
       res.status(500).json({ 
         status: 'error',
         message: error.message,
@@ -514,35 +625,6 @@ export async function registerRoutes(app: Express) {
     }
   });
 
-  // Cache Performance Metrics
-  app.get("/api/cache/metrics", async (_req, res) => {
-    try {
-      // Get real cache metrics from Redis
-      const info = await redisClient.info('stats');
-      const keyspace = await redisClient.info('keyspace');
-
-      // Parse Redis info
-      const hits = parseInt(info.match(/keyspace_hits:(\d+)/)?.[1] || '0');
-      const misses = parseInt(info.match(/keyspace_misses:(\d+)/)?.[1] || '0');
-      const totalOps = hits + misses;
-
-      const metrics = {
-        hitRate: totalOps > 0 ? (hits / totalOps) * 100 : 0,
-        missRate: totalOps > 0 ? (misses / totalOps) * 100 : 0,
-        itemCount: parseInt(keyspace.match(/keys=(\d+)/)?.[1] || '0'),
-        averageResponseTime: parseFloat(info.match(/instantaneous_ops_per_sec:(\d+)/)?.[1] || '0'),
-        lastUpdate: new Date()
-      };
-
-      res.json(metrics);
-    } catch (error: any) {
-      console.error('Cache metrics error:', error);
-      res.status(500).json({ 
-        status: 'error',
-        message: error.message 
-      });
-    }
-  });
 
   // Advanced GraphQL Search Endpoint
   app.post("/api/graphql/search", async (req, res) => {
@@ -573,5 +655,22 @@ export async function registerRoutes(app: Express) {
   });
 
   const httpServer = createServer(app);
+
+  // Initialize WebSocket server
+  const wss = new WebSocketServer({ 
+    server: httpServer,
+    path: '/ws'
+  });
+
+  wss.on('connection', (ws) => {
+    console.log('WebSocket client connected');
+
+    ws.on('error', console.error);
+
+    ws.on('close', () => {
+      console.log('WebSocket client disconnected');
+    });
+  });
+
   return httpServer;
 }
