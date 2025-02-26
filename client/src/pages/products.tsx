@@ -81,7 +81,15 @@ export default function Products() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
   // Fetch products
-  const { data: products, isLoading } = useQuery<Product[]>({
+  const { data, isLoading } = useQuery<{
+    products: Product[];
+    pagination: {
+      total: number;
+      page: number;
+      pageSize: number;
+      totalPages: number;
+    };
+  }>({
     queryKey: ["/api/products", search, filters],
     queryFn: async () => {
       const params = new URLSearchParams();
@@ -205,28 +213,28 @@ export default function Products() {
     },
   });
 
-  // Calculate statistics
-  const stats = products
+  // Calculate statistics from the products array
+  const stats = data?.products
     ? {
-        total: products.length,
-        active: products.filter((p) => p.status === "active").length,
-        totalValue: products.reduce(
-          (sum, p) => sum + parseFloat(p.price),
+        total: data.products.length,
+        active: data.products.filter((p) => p.status === "active").length,
+        totalValue: data.products.reduce(
+          (sum, p) => sum + parseFloat(p.price || '0'),
           0
         ),
-        avgPrice: products.length
-          ? products.reduce((sum, p) => sum + parseFloat(p.price), 0) /
-            products.length
+        avgPrice: data.products.length
+          ? data.products.reduce((sum, p) => sum + parseFloat(p.price || '0'), 0) /
+            data.products.length
           : 0,
       }
     : null;
 
   // Handle bulk selection
   const handleSelectAll = () => {
-    if (selectedProducts.length === products?.length) {
+    if (selectedProducts.length === data?.products?.length) {
       setSelectedProducts([]);
     } else {
-      setSelectedProducts(products?.map((p) => p.id) || []);
+      setSelectedProducts(data?.products?.map((p) => p.id) || []);
     }
   };
 
@@ -545,7 +553,7 @@ export default function Products() {
             <TableRow>
               <TableHead className="w-12">
                 <Checkbox
-                  checked={selectedProducts.length === products?.length}
+                  checked={selectedProducts.length === data?.products?.length}
                   onCheckedChange={handleSelectAll}
                 />
               </TableHead>
@@ -564,7 +572,7 @@ export default function Products() {
                   Loading...
                 </TableCell>
               </TableRow>
-            ) : products?.map((product) => (
+            ) : data?.products?.map((product) => (
               <TableRow
                 key={product.id}
                 className="cursor-pointer hover:bg-muted/50"
