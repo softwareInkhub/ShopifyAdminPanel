@@ -6,6 +6,15 @@ import { z } from "zod";
 import { shopifyClient, TEST_SHOP_QUERY } from "./shopify";
 import { insertOrderSchema, insertProductSchema, type JobConfig } from "@shared/schema";
 import { db } from "./firebase";
+import Redis from 'redis';
+
+// Initialize Redis client
+const redisClient = Redis.createClient({
+  url: process.env.REDIS_URL || 'redis://localhost:6379'
+});
+
+redisClient.on('error', (err) => console.error('Redis Client Error', err));
+redisClient.connect().then(() => console.log('Redis connected'));
 
 export async function registerRoutes(app: Express) {
   // Initialize job queue
@@ -31,13 +40,20 @@ export async function registerRoutes(app: Express) {
     }
   });
 
-  // Orders endpoint with enhanced error handling and Firebase integration
+  // Orders endpoint with enhanced error handling and caching
   app.get("/api/orders", async (req, res) => {
     try {
       const { status, search, from, to } = req.query;
-      console.log('Fetching orders with params:', { status, search, from, to });
+      const cacheKey = `orders:${JSON.stringify({ status, search, from, to })}`;
 
-      // Query Firebase for orders
+      // Try cache first
+      const cachedData = await redisClient.get(cacheKey);
+      if (cachedData) {
+        console.log('Cache hit for orders query');
+        return res.json(JSON.parse(cachedData));
+      }
+
+      // Query Firebase if not in cache
       let ordersQuery = db.collection('orders');
 
       if (status && status !== 'all') {
@@ -53,10 +69,21 @@ export async function registerRoutes(app: Express) {
       }
 
       const snapshot = await ordersQuery.get();
-      let orders = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+      let orders = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          customerEmail: data.customerEmail,
+          totalPrice: data.totalPrice,
+          status: data.status,
+          createdAt: data.createdAt?.toDate?.() || data.createdAt,
+          currency: data.currency,
+          items: data.items || [],
+          shippingAddress: data.shippingAddress,
+          billingAddress: data.billingAddress,
+          rawData: data
+        };
+      });
 
       // Apply text search filter if provided
       if (search) {
@@ -66,6 +93,9 @@ export async function registerRoutes(app: Express) {
           order.id.toLowerCase().includes(searchStr)
         );
       }
+
+      // Cache the results
+      await redisClient.setEx(cacheKey, 300, JSON.stringify(orders)); // Cache for 5 minutes
 
       console.log(`Retrieved ${orders.length} orders from Firebase`);
       res.json(orders);
@@ -79,11 +109,18 @@ export async function registerRoutes(app: Express) {
     }
   });
 
-  // Products endpoint with Firebase integration
+  // Products endpoint with enhanced caching
   app.get("/api/products", async (req, res) => {
     try {
       const { search, category, status, minPrice, maxPrice } = req.query;
-      console.log('Fetching products with params:', { search, category, status, minPrice, maxPrice });
+      const cacheKey = `products:${JSON.stringify({ search, category, status, minPrice, maxPrice })}`;
+
+      // Try cache first
+      const cachedData = await redisClient.get(cacheKey);
+      if (cachedData) {
+        console.log('Cache hit for products query');
+        return res.json(JSON.parse(cachedData));
+      }
 
       let productsQuery = db.collection('products');
 
@@ -96,10 +133,23 @@ export async function registerRoutes(app: Express) {
       }
 
       const snapshot = await productsQuery.get();
-      let products = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+      let products = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          title: data.title,
+          description: data.description,
+          price: data.price,
+          status: data.status,
+          category: data.category,
+          sku: data.sku,
+          inventory: data.inventory,
+          variants: data.variants || [],
+          images: data.images || [],
+          createdAt: data.createdAt?.toDate?.() || data.createdAt,
+          rawData: data
+        };
+      });
 
       // Apply additional filters
       if (minPrice) {
@@ -117,6 +167,9 @@ export async function registerRoutes(app: Express) {
           product.description?.toLowerCase().includes(searchStr)
         );
       }
+
+      // Cache the results
+      await redisClient.setEx(cacheKey, 300, JSON.stringify(products)); // Cache for 5 minutes
 
       console.log(`Retrieved ${products.length} products from Firebase`);
       res.json(products);
@@ -464,12 +517,20 @@ export async function registerRoutes(app: Express) {
   // Cache Performance Metrics
   app.get("/api/cache/metrics", async (_req, res) => {
     try {
-      const snapshot = await db.collection('cache_metrics').doc('current').get();
-      const metrics = snapshot.data() || {
-        hitRate: 0,
-        missRate: 0,
-        itemCount: 0,
-        averageResponseTime: 0,
+      // Get real cache metrics from Redis
+      const info = await redisClient.info('stats');
+      const keyspace = await redisClient.info('keyspace');
+
+      // Parse Redis info
+      const hits = parseInt(info.match(/keyspace_hits:(\d+)/)?.[1] || '0');
+      const misses = parseInt(info.match(/keyspace_misses:(\d+)/)?.[1] || '0');
+      const totalOps = hits + misses;
+
+      const metrics = {
+        hitRate: totalOps > 0 ? (hits / totalOps) * 100 : 0,
+        missRate: totalOps > 0 ? (misses / totalOps) * 100 : 0,
+        itemCount: parseInt(keyspace.match(/keys=(\d+)/)?.[1] || '0'),
+        averageResponseTime: parseFloat(info.match(/instantaneous_ops_per_sec:(\d+)/)?.[1] || '0'),
         lastUpdate: new Date()
       };
 

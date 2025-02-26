@@ -1,7 +1,7 @@
 import { initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 
-// Initialize Firebase with better error handling
+// Initialize Firebase with better error handling and performance monitoring
 function initializeFirebase() {
   // Parse and validate service account
   let serviceAccount;
@@ -41,7 +41,8 @@ function initializeFirebase() {
   try {
     db.settings({
       ignoreUndefinedProperties: true,
-      cacheSizeBytes: 1073741824 // 1GB cache size
+      cacheSizeBytes: 1073741824, // 1GB cache size for better performance
+      minimumConsistencyLevel: 'eventual' // For better read performance
     });
     console.log('Firestore settings configured successfully');
     return db;
