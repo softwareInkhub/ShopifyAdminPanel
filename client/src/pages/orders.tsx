@@ -4,12 +4,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Calendar } from "@/components/ui/calendar";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Package, Search, Calendar as CalendarIcon, Filter, ArrowUpDown, TrendingUp, DollarSign, RefreshCw } from "lucide-react";
+import { Search, Calendar as CalendarIcon, TrendingUp, RefreshCw } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 
@@ -50,45 +49,38 @@ function Orders() {
   const pageSize = 100; // Show 100 orders per page
   const queryClient = useQueryClient();
 
-  // Main query with prefetching logic
+  // Function to fetch orders data
+  const fetchOrders = async (pageNum: number) => {
+    const params = new URLSearchParams();
+    if (filter !== 'all') params.append('status', filter);
+    if (search) params.append('search', search);
+    if (dateRange.from) params.append('from', dateRange.from.toISOString());
+    if (dateRange.to) params.append('to', dateRange.to.toISOString());
+    params.append('page', pageNum.toString());
+    params.append('pageSize', pageSize.toString());
+
+    const res = await fetch(`/api/orders?${params.toString()}`);
+    if (!res.ok) throw new Error('Failed to fetch orders');
+    return res.json();
+  };
+
+  // Main query
   const { data, isLoading } = useQuery<OrdersResponse>({
     queryKey: ['/api/orders', filter, search, dateRange, page, pageSize],
-    queryFn: async () => {
-      const params = new URLSearchParams();
-      if (filter !== 'all') params.append('status', filter);
-      if (search) params.append('search', search);
-      if (dateRange.from) params.append('from', dateRange.from.toISOString());
-      if (dateRange.to) params.append('to', dateRange.to.toISOString());
-      params.append('page', page.toString());
-      params.append('pageSize', pageSize.toString());
-
-      const res = await fetch(`/api/orders?${params.toString()}`);
-      if (!res.ok) throw new Error('Failed to fetch orders');
-      return res.json();
-    },
+    queryFn: () => fetchOrders(page),
     staleTime: 5 * 60 * 1000, // Data stays fresh for 5 minutes
-    cacheTime: 30 * 60 * 1000, // Cache for 30 minutes
+    gcTime: 30 * 60 * 1000, // Keep unused data in cache for 30 minutes
   });
 
   // Prefetch next page
   useEffect(() => {
     if (data?.pagination.totalPages > page) {
       const nextPage = page + 1;
+      // Prefetch and cache next page
       queryClient.prefetchQuery({
         queryKey: ['/api/orders', filter, search, dateRange, nextPage, pageSize],
-        queryFn: async () => {
-          const params = new URLSearchParams();
-          if (filter !== 'all') params.append('status', filter);
-          if (search) params.append('search', search);
-          if (dateRange.from) params.append('from', dateRange.from.toISOString());
-          if (dateRange.to) params.append('to', dateRange.to.toISOString());
-          params.append('page', nextPage.toString());
-          params.append('pageSize', pageSize.toString());
-
-          const res = await fetch(`/api/orders?${params.toString()}`);
-          if (!res.ok) throw new Error('Failed to fetch orders');
-          return res.json();
-        },
+        queryFn: () => fetchOrders(nextPage),
+        staleTime: 5 * 60 * 1000,
       });
     }
   }, [page, data, filter, search, dateRange, queryClient]);
@@ -135,8 +127,19 @@ function Orders() {
 
   // Handle page changes
   const handlePageChange = (newPage: number) => {
+    // Check if the next page data is already in cache
+    const nextPageData = queryClient.getQueryData(['/api/orders', filter, search, dateRange, newPage, pageSize]);
+
+    // If not in cache, prefetch it
+    if (!nextPageData) {
+      queryClient.prefetchQuery({
+        queryKey: ['/api/orders', filter, search, dateRange, newPage, pageSize],
+        queryFn: () => fetchOrders(newPage),
+        staleTime: 5 * 60 * 1000,
+      });
+    }
+
     setPage(newPage);
-    // Scroll to top when page changes
     window.scrollTo(0, 0);
   };
 
@@ -237,6 +240,7 @@ function Orders() {
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-auto p-0" align="end">
+            {/*Calendar component remains unchanged*/}
             <Calendar
               initialFocus
               mode="range"

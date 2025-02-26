@@ -2,13 +2,30 @@ import type { Express } from "express";
 import { getDb } from "./firebase";
 import { logger } from './logger';
 
-// Enhanced cache manager with batch operations
+// Enhanced cache manager with batch operations and prefetching
 class CacheManager {
   private memoryCache = new Map<string, { data: any; expiry: number }>();
   private backgroundJobs = new Map<string, Promise<void>>();
+  private prefetchQueue: Set<string> = new Set();
 
   initialize() {
-    logger.cache.info('Initialized enhanced cache manager');
+    logger.server.info('Initialized enhanced cache manager');
+    // Start background prefetch worker
+    this.startPrefetchWorker();
+  }
+
+  private startPrefetchWorker() {
+    setInterval(() => {
+      this.processPrefetchQueue();
+    }, 1000); // Process queue every second
+  }
+
+  private async processPrefetchQueue() {
+    for (const key of this.prefetchQueue) {
+      if (!this.backgroundJobs.has(key)) {
+        this.prefetchQueue.delete(key);
+      }
+    }
   }
 
   async get(key: string): Promise<any> {
@@ -19,6 +36,10 @@ class CacheManager {
         return item.data;
       }
       logger.cache.debug('Cache miss');
+      // Clean up expired item
+      if (item) {
+        this.memoryCache.delete(key);
+      }
     } catch (error) {
       logger.cache.error('Cache get error');
     }
@@ -38,7 +59,8 @@ class CacheManager {
 
   async batchPrefetch(keys: string[], fetchFn: (key: string) => Promise<any>): Promise<void> {
     for (const key of keys) {
-      if (!this.backgroundJobs.has(key)) {
+      if (!this.backgroundJobs.has(key) && !this.prefetchQueue.has(key)) {
+        this.prefetchQueue.add(key);
         const job = fetchFn(key).then(data => {
           if (data) this.set(key, data);
           this.backgroundJobs.delete(key);
