@@ -1,0 +1,30 @@
+client:536 Refused to connect to 'wss://9e927286-d082-4964-ae2f-331312026fe0-00-2eigbdlakc55s.riker.replit.dev:24678/?token=xp_BF-MpFLQU' because it violates the following Content Security Policy directive: "default-src 'self'". Note that 'connect-src' was not explicitly set, so 'default-src' is used as a fallback.
+
+chunk-RPCDYKBN.js?v=e4ea6401:21551 Download the React DevTools for a better development experience: https://reactjs.org/link/react-devtools
+2
+AdminDashboard.tsx:337 Uncaught TypeError: products?.reduce is not a function
+    at ProductsSummaryWidget (AdminDashboard.tsx:337:32)
+chunk-RPCDYKBN.js?v=e4ea6401:14032 The above error occurred in the <ProductsSummaryWidget> component:
+
+    at ProductsSummaryWidget (https://9e927286-d082-4964-ae2f-331312026fe0-00-2eigbdlakc55s.riker.replit.dev/src/components/AdminDashboard.tsx:639:30)
+    at div
+    at _c9 (https://9e927286-d082-4964-ae2f-331312026fe0-00-2eigbdlakc55s.riker.replit.dev/src/components/ui/card.tsx:114:12)
+    at div
+    at _c (https://9e927286-d082-4964-ae2f-331312026fe0-00-2eigbdlakc55s.riker.replit.dev/src/components/ui/card.tsx:20:11)
+    at div
+    at div
+    at AdminDashboard (https://9e927286-d082-4964-ae2f-331312026fe0-00-2eigbdlakc55s.riker.replit.dev/src/components/AdminDashboard.tsx:139:31)
+    at Route (https://9e927286-d082-4964-ae2f-331312026fe0-00-2eigbdlakc55s.riker.replit.…/home/runner/workspace/node_modules/.vite/deps/wouter.js?v=e4ea6401:265:16)
+    at Switch (https://9e927286-d082-4964-ae2f-331312026fe0-00-2eigbdlakc55s.riker.replit.…/home/runner/workspace/node_modules/.vite/deps/wouter.js?v=e4ea6401:321:17)
+    at main
+    at div
+    at Router
+    at QueryClientProvider (https://9e927286-d082-4964-ae2f-331312026fe0-00-2eigbdlakc55s.riker.replit.…rkspace/node_modules/.vite/deps/@tanstack_react-query.js?v=e4ea6401:2805:3)
+    at App
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries.
+chunk-RPCDYKBN.js?v=e4ea6401:9129 Uncaught TypeError: products?.reduce is not a function
+    at ProductsSummaryWidget (AdminDashboard.tsx:337:32)
+﻿
+

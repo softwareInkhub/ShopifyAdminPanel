@@ -329,12 +329,17 @@ function ProductsSummaryWidget() {
     queryKey: ['products'],
     queryFn: async () => {
       const response = await fetch('/api/products');
+      if (!response.ok) {
+        throw new Error('Failed to fetch products');
+      }
       return response.json();
     }
   });
 
-  const totalProducts = products?.length || 0;
-  const totalValue = products?.reduce((sum: number, p: any) => sum + parseFloat(p.price), 0) || 0;
+  // Safely access the products array from the response
+  const productsArray = products?.products || [];
+  const totalProducts = productsArray.length || 0;
+  const totalValue = productsArray.reduce((sum, p) => sum + (parseFloat(p.price) || 0), 0);
 
   return (
     <div className="space-y-2">

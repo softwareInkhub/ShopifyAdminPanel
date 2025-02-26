@@ -35,6 +35,33 @@ async function initializeFirebase() {
     });
     logger.server.info(`Firebase connection verified in ${Date.now() - startTime}ms`);
 
+    // Initialize sample data if not exists
+    const ordersRef = await db.collection('orders').limit(1).get();
+    const productsRef = await db.collection('products').limit(1).get();
+
+    if (ordersRef.empty) {
+      await db.collection('orders').add({
+        customerEmail: 'test@example.com',
+        totalPrice: 99.99,
+        status: 'UNFULFILLED',
+        createdAt: new Date(),
+        currency: 'USD'
+      });
+      logger.server.info('Added sample order data');
+    }
+
+    if (productsRef.empty) {
+      await db.collection('products').add({
+        title: 'Sample Product',
+        description: 'A test product',
+        price: 49.99,
+        status: 'ACTIVE',
+        category: 'Test',
+        createdAt: new Date()
+      });
+      logger.server.info('Added sample product data');
+    }
+
     firestoreDb = db;
     return db;
   } catch (error) {
