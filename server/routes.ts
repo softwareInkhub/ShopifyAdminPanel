@@ -17,12 +17,14 @@ class CacheManager {
 
   async initialize() {
     try {
+      console.log('Initializing cache manager...');
       this.redisClient = Redis.createClient({
         url: process.env.REDIS_URL || 'redis://localhost:6379',
         socket: {
           reconnectStrategy: (retries) => {
-            if (retries > 10) {
-              console.log('Max Redis retries reached, using memory cache');
+            if (retries > 5) {
+              console.log('Redis connection failed, falling back to memory cache');
+              this.isRedisConnected = false;
               return false;
             }
             return Math.min(retries * 100, 3000);
@@ -31,7 +33,7 @@ class CacheManager {
       });
 
       this.redisClient.on('error', (err) => {
-        console.error('Redis Client Error:', err);
+        console.log('Redis error, using memory cache:', err.message);
         this.isRedisConnected = false;
       });
 
@@ -40,9 +42,14 @@ class CacheManager {
         this.isRedisConnected = true;
       });
 
-      await this.redisClient.connect();
+      try {
+        await this.redisClient.connect();
+      } catch (error) {
+        console.log('Redis connection failed, using memory cache');
+        this.isRedisConnected = false;
+      }
     } catch (error) {
-      console.error('Failed to initialize Redis:', error);
+      console.log('Cache manager initialization error:', error);
       this.isRedisConnected = false;
     }
   }
@@ -56,7 +63,7 @@ class CacheManager {
         }
       }
     } catch (error) {
-      console.error('Redis get error:', error);
+      console.log('Redis get error, using memory cache:', error);
     }
 
     return this.memoryCache.get(key) || null;
@@ -68,11 +75,10 @@ class CacheManager {
         await this.redisClient.setEx(key, ttl, value);
       }
     } catch (error) {
-      console.error('Redis set error:', error);
+      console.log('Redis set error, using memory cache:', error);
     }
 
     this.memoryCache.set(key, value);
-    // Implement TTL for memory cache
     setTimeout(() => this.memoryCache.delete(key), ttl * 1000);
   }
 
@@ -95,10 +101,9 @@ class CacheManager {
         };
       }
     } catch (error) {
-      console.error('Redis metrics error:', error);
+      console.log('Redis metrics error, using memory metrics:', error);
     }
 
-    // Memory cache metrics
     return {
       hitRate: 100,
       missRate: 0,
@@ -110,6 +115,7 @@ class CacheManager {
 }
 
 const cacheManager = new CacheManager();
+console.log('Starting cache manager initialization...');
 cacheManager.initialize().catch(console.error);
 
 export async function registerRoutes(app: Express) {
