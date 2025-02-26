@@ -5,6 +5,7 @@ import { addJob, initializeQueue } from "./queue";
 import { z } from "zod";
 import { shopifyClient, TEST_SHOP_QUERY } from "./shopify";
 import { insertOrderSchema, insertProductSchema, type JobConfig } from "@shared/schema";
+import { db } from "./firebase";
 
 export async function registerRoutes(app: Express) {
   // Initialize job queue
@@ -30,50 +31,102 @@ export async function registerRoutes(app: Express) {
     }
   });
 
-  // Orders endpoint with enhanced filtering and error handling
+  // Orders endpoint with enhanced error handling and Firebase integration
   app.get("/api/orders", async (req, res) => {
-    console.log('Fetching orders with params:', req.query);
     try {
       const { status, search, from, to } = req.query;
+      console.log('Fetching orders with params:', { status, search, from, to });
 
-      // Get all orders first
-      const orders = await storage.listOrders();
-      console.log(`Retrieved ${orders.length} orders from storage`);
+      // Query Firebase for orders
+      let ordersQuery = db.collection('orders');
 
-      // Apply filters
-      const filteredOrders = orders.filter(order => {
-        let matches = true;
+      if (status && status !== 'all') {
+        ordersQuery = ordersQuery.where('status', '==', status);
+      }
 
-        // Status filter
-        if (status && status !== 'all') {
-          matches = matches && order.status === status;
-        }
+      if (from) {
+        ordersQuery = ordersQuery.where('createdAt', '>=', new Date(from.toString()));
+      }
 
-        // Search filter
-        if (search) {
-          const searchStr = search.toString().toLowerCase();
-          matches = matches && (
-            order.customerEmail.toLowerCase().includes(searchStr) ||
-            order.shopifyId.toLowerCase().includes(searchStr)
-          );
-        }
+      if (to) {
+        ordersQuery = ordersQuery.where('createdAt', '<=', new Date(to.toString()));
+      }
 
-        // Date range filter
-        if (from) {
-          matches = matches && new Date(order.createdAt) >= new Date(from.toString());
-        }
-        if (to) {
-          matches = matches && new Date(order.createdAt) <= new Date(to.toString());
-        }
+      const snapshot = await ordersQuery.get();
+      let orders = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
 
-        return matches;
-      });
+      // Apply text search filter if provided
+      if (search) {
+        const searchStr = search.toString().toLowerCase();
+        orders = orders.filter(order => 
+          order.customerEmail?.toLowerCase().includes(searchStr) ||
+          order.id.toLowerCase().includes(searchStr)
+        );
+      }
 
-      console.log(`Returning ${filteredOrders.length} filtered orders`);
-      res.json(filteredOrders);
+      console.log(`Retrieved ${orders.length} orders from Firebase`);
+      res.json(orders);
     } catch (error: any) {
       console.error('Orders fetch error:', error);
-      res.status(500).json({ message: error.message });
+      res.status(500).json({ 
+        status: 'error',
+        message: error.message,
+        details: error.stack
+      });
+    }
+  });
+
+  // Products endpoint with Firebase integration
+  app.get("/api/products", async (req, res) => {
+    try {
+      const { search, category, status, minPrice, maxPrice } = req.query;
+      console.log('Fetching products with params:', { search, category, status, minPrice, maxPrice });
+
+      let productsQuery = db.collection('products');
+
+      if (status && status !== 'all') {
+        productsQuery = productsQuery.where('status', '==', status);
+      }
+
+      if (category && category !== 'All') {
+        productsQuery = productsQuery.where('category', '==', category);
+      }
+
+      const snapshot = await productsQuery.get();
+      let products = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+
+      // Apply additional filters
+      if (minPrice) {
+        products = products.filter(p => parseFloat(p.price || '0') >= parseFloat(minPrice.toString()));
+      }
+
+      if (maxPrice) {
+        products = products.filter(p => parseFloat(p.price || '0') <= parseFloat(maxPrice.toString()));
+      }
+
+      if (search) {
+        const searchStr = search.toString().toLowerCase();
+        products = products.filter(product =>
+          product.title?.toLowerCase().includes(searchStr) ||
+          product.description?.toLowerCase().includes(searchStr)
+        );
+      }
+
+      console.log(`Retrieved ${products.length} products from Firebase`);
+      res.json(products);
+    } catch (error: any) {
+      console.error('Products fetch error:', error);
+      res.status(500).json({ 
+        status: 'error',
+        message: error.message,
+        details: error.stack
+      });
     }
   });
 
@@ -88,54 +141,8 @@ export async function registerRoutes(app: Express) {
     }
   });
 
+
   // Products with enhanced filtering and validation
-  app.get("/api/products", async (req, res) => {
-    try {
-      const { search, category, status, minPrice, maxPrice } = req.query;
-      const products = await storage.listProducts();
-
-      // Apply filters
-      const filteredProducts = products.filter(product => {
-        let matches = true;
-
-        // Search filter
-        if (search) {
-          const searchStr = search.toString().toLowerCase();
-          matches = matches && (
-            (product.title?.toLowerCase().includes(searchStr) || false) ||
-            (product.description?.toLowerCase().includes(searchStr) || false)
-          );
-        }
-
-        // Category filter
-        if (category && category !== "All") {
-          matches = matches && product.category === category;
-        }
-
-        // Status filter
-        if (status && status !== "all") {
-          matches = matches && product.status === status;
-        }
-
-        // Price range filter
-        if (minPrice) {
-          matches = matches && parseFloat(product.price) >= parseFloat(minPrice.toString());
-        }
-        if (maxPrice) {
-          matches = matches && parseFloat(product.price) <= parseFloat(maxPrice.toString());
-        }
-
-        return matches;
-      });
-
-      console.log(`Returning ${filteredProducts.length} filtered products`);
-      res.json(filteredProducts);
-    } catch (error: any) {
-      console.error('Products fetch error:', error);
-      res.status(500).json({ message: error.message });
-    }
-  });
-
   app.post("/api/products", async (req, res) => {
     try {
       // Validate product data
@@ -340,28 +347,86 @@ export async function registerRoutes(app: Express) {
   });
 
   // Add these new endpoints after existing routes
-  // Sync Health Monitoring Endpoints
-  app.get("/api/sync/health", async (_req, res) => {
+  // Health check endpoints
+  app.get("/api/monitoring/health/summary", async (_req, res) => {
     try {
-      const metrics = await storage.getSyncMetrics();
-      const activeJobs = await storage.listJobs({ status: 'processing' });
-      const recentErrors = await storage.getRecentErrors();
+      const snapshot = await db.collection('system_health').doc('current').get();
+      const healthData = snapshot.data() || {
+        status: 'unknown',
+        activeAlerts: 0,
+        lastUpdate: new Date()
+      };
 
-      res.json({
-        status: 'success',
-        metrics: {
-          syncSpeed: metrics.currentSpeed || 0,
-          itemsProcessed: metrics.totalProcessed || 0,
-          cacheHitRate: metrics.cacheHitRate || 0,
-          errorRate: metrics.errorRate || 0,
-          activeJobs: activeJobs.length,
-          lastSync: metrics.lastSyncTime,
-          recentErrors
-        }
-      });
+      res.json(healthData);
     } catch (error: any) {
-      console.error('Health check error:', error);
-      res.status(500).json({ message: error.message });
+      console.error('Health summary fetch error:', error);
+      res.status(500).json({ 
+        status: 'error',
+        message: error.message 
+      });
+    }
+  });
+
+  // Analytics endpoints
+  app.get("/api/analytics/performance/summary", async (_req, res) => {
+    try {
+      const snapshot = await db.collection('analytics').doc('performance').get();
+      const metrics = snapshot.data() || {
+        avgResponse: 0,
+        errorRate: 0,
+        lastUpdate: new Date()
+      };
+
+      res.json(metrics);
+    } catch (error: any) {
+      console.error('Performance metrics fetch error:', error);
+      res.status(500).json({ 
+        status: 'error',
+        message: error.message 
+      });
+    }
+  });
+
+  // Sync metrics endpoint
+  app.get("/api/sync/metrics", async (_req, res) => {
+    try {
+      const snapshot = await db.collection('sync_metrics').doc('current').get();
+      const metrics = snapshot.data() || {
+        currentSpeed: 0,
+        errorRate: 0,
+        totalProcessed: 0,
+        lastUpdate: new Date()
+      };
+
+      res.json(metrics);
+    } catch (error: any) {
+      console.error('Sync metrics fetch error:', error);
+      res.status(500).json({ 
+        status: 'error',
+        message: error.message 
+      });
+    }
+  });
+
+    // Cache Performance Metrics
+  app.get("/api/cache/metrics", async (_req, res) => {
+    try {
+      const snapshot = await db.collection('cache_metrics').doc('current').get();
+      const metrics = snapshot.data() || {
+        hitRate: 0,
+        missRate: 0,
+        itemCount: 0,
+        averageResponseTime: 0,
+        lastUpdate: new Date()
+      };
+
+      res.json(metrics);
+    } catch (error: any) {
+      console.error('Cache metrics error:', error);
+      res.status(500).json({ 
+        status: 'error',
+        message: error.message 
+      });
     }
   });
 
@@ -389,23 +454,6 @@ export async function registerRoutes(app: Express) {
       res.json(searchResults);
     } catch (error: any) {
       console.error('Search error:', error);
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // Cache Performance Metrics
-  app.get("/api/cache/metrics", async (_req, res) => {
-    try {
-      const metrics = await storage.getCacheMetrics();
-      res.json({
-        hitRate: metrics.hitRate,
-        missRate: metrics.missRate,
-        size: metrics.currentSize,
-        itemCount: metrics.itemCount,
-        averageResponseTime: metrics.avgResponseTime
-      });
-    } catch (error: any) {
-      console.error('Cache metrics error:', error);
       res.status(500).json({ message: error.message });
     }
   });

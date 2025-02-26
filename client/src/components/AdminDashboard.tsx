@@ -231,14 +231,34 @@ export default function AdminDashboard() {
 }
 
 function SyncSummaryWidget() {
-  const { data: metrics } = useQuery({
+  const { data: metrics, isLoading, error } = useQuery({
     queryKey: ['syncMetrics'],
     queryFn: async () => {
       const response = await fetch('/api/sync/metrics');
+      if (!response.ok) {
+        throw new Error('Failed to fetch sync metrics');
+      }
       return response.json();
     },
     refetchInterval: 5000
   });
+
+  if (isLoading) {
+    return (
+      <div className="grid grid-cols-2 gap-4">
+        <div className="animate-pulse bg-gray-200 h-16 rounded" />
+        <div className="animate-pulse bg-gray-200 h-16 rounded" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-sm text-red-500">
+        Error loading sync metrics
+      </div>
+    );
+  }
 
   return (
     <div className="grid grid-cols-2 gap-4">
@@ -255,13 +275,36 @@ function SyncSummaryWidget() {
 }
 
 function OrdersSummaryWidget() {
-  const { data: orders } = useQuery({
+  const { data: orders, isLoading, error } = useQuery({
     queryKey: ['orders'],
     queryFn: async () => {
       const response = await fetch('/api/orders');
+      if (!response.ok) {
+        throw new Error('Failed to fetch orders');
+      }
       return response.json();
     }
   });
+
+  if (isLoading) {
+    return (
+      <div className="space-y-2">
+        <div className="animate-pulse bg-gray-200 h-8 rounded" />
+        <div className="space-y-1">
+          <div className="animate-pulse bg-gray-200 h-4 rounded" />
+          <div className="animate-pulse bg-gray-200 h-4 rounded" />
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-sm text-red-500">
+        Error loading orders
+      </div>
+    );
+  }
 
   const recentOrders = orders?.slice(0, 2) || [];
   const totalOrders = orders?.length || 0;
