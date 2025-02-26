@@ -10,9 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Package, Search, Calendar as CalendarIcon, Filter, ArrowUpDown, TrendingUp, TrendingDown, DollarSign, RefreshCw } from "lucide-react";
+import { Package, Search, Calendar as CalendarIcon, Filter, ArrowUpDown, TrendingUp, DollarSign, RefreshCw } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { format } from "date-fns";
 
 // Order status options with colors
 const ORDER_STATUSES = {
@@ -22,21 +21,18 @@ const ORDER_STATUSES = {
   CANCELLED: { label: "Cancelled", color: "red" },
 };
 
+interface Order {
+  id: string;
+  customerEmail: string;
+  totalPrice: number;
+  status: string;
+  createdAt: string;
+  currency: string;
+}
+
 interface OrdersResponse {
-  orders: Array<{
-    id: string;
-    customerEmail: string;
-    totalPrice: number;
-    status: string;
-    createdAt: string;
-    currency: string;
-  }>;
-  pagination: {
-    total: number;
-    page: number;
-    pageSize: number;
-    totalPages: number;
-  };
+  orders: Order[];
+  total: number;
 }
 
 export default function Orders() {
@@ -44,21 +40,17 @@ export default function Orders() {
   const [filter, setFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [dateRange, setDateRange] = useState<{ from?: Date; to?: Date }>({});
-  const [selectedOrder, setSelectedOrder] = useState<any>(null);
-  const [page, setPage] = useState(1);
-  const pageSize = 10;
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
 
   // Fetch orders with all params
   const { data, isLoading } = useQuery<OrdersResponse>({
-    queryKey: ['/api/orders', filter, search, dateRange, page, pageSize],
+    queryKey: ['/api/orders', filter, search, dateRange],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (filter !== 'all') params.append('status', filter);
       if (search) params.append('search', search);
       if (dateRange.from) params.append('from', dateRange.from.toISOString());
       if (dateRange.to) params.append('to', dateRange.to.toISOString());
-      params.append('page', page.toString());
-      params.append('limit', pageSize.toString());
 
       const res = await fetch(`/api/orders?${params.toString()}`);
       if (!res.ok) throw new Error('Failed to fetch orders');
@@ -96,14 +88,15 @@ export default function Orders() {
     }
   });
 
-  // Calculate statistics from paginated data
-  const stats = data?.orders ? {
-    total: data.pagination.total,
-    fulfilled: data.orders.filter(o => o.status === 'FULFILLED').length,
-    unfulfilled: data.orders.filter(o => o.status === 'UNFULFILLED').length,
-    totalValue: data.orders.reduce((sum, order) => sum + parseFloat(order.totalPrice.toString()), 0),
-    avgValue: data.orders.length ? data.orders.reduce((sum, order) => sum + parseFloat(order.totalPrice.toString()), 0) / data.orders.length : 0
-  } : null;
+  // Calculate statistics from orders data
+  const orders = data?.orders || [];
+  const stats = {
+    total: data?.total || 0,
+    fulfilled: orders.filter(o => o.status === 'FULFILLED').length,
+    unfulfilled: orders.filter(o => o.status === 'UNFULFILLED').length,
+    totalValue: orders.reduce((sum, order) => sum + parseFloat(order.totalPrice.toString()), 0),
+    avgValue: orders.length ? orders.reduce((sum, order) => sum + parseFloat(order.totalPrice.toString()), 0) / orders.length : 0
+  };
 
   return (
     <div className="p-8 space-y-6">
@@ -128,9 +121,9 @@ export default function Orders() {
             <CardTitle className="text-sm font-medium">Total Orders</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats?.total || 0}</div>
+            <div className="text-2xl font-bold">{stats.total}</div>
             <p className="text-xs text-muted-foreground">
-              +2.1% from last month
+              Total orders in system
             </p>
           </CardContent>
         </Card>
@@ -140,7 +133,7 @@ export default function Orders() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600">
-              {stats ? Math.round((stats.fulfilled / stats.total) * 100) : 0}%
+              {stats.total ? Math.round((stats.fulfilled / stats.total) * 100) : 0}%
               <TrendingUp className="inline-block ml-2 h-4 w-4" />
             </div>
           </CardContent>
@@ -151,7 +144,7 @@ export default function Orders() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              ${stats?.totalValue.toFixed(2) || "0.00"}
+              ${stats.totalValue.toFixed(2)}
               <TrendingUp className="inline-block ml-2 h-4 w-4 text-green-600" />
             </div>
           </CardContent>
@@ -162,7 +155,7 @@ export default function Orders() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              ${stats?.avgValue.toFixed(2) || "0.00"}
+              ${stats.avgValue.toFixed(2)}
             </div>
           </CardContent>
         </Card>
@@ -236,7 +229,7 @@ export default function Orders() {
                   <TableCell><Skeleton className="h-4 w-16" /></TableCell>
                 </TableRow>
               ))
-            ) : data?.orders.map((order) => (
+            ) : orders.map((order) => (
               <TableRow key={order.id} className="cursor-pointer hover:bg-muted/50">
                 <TableCell>{order.id}</TableCell>
                 <TableCell>{order.customerEmail}</TableCell>
@@ -249,7 +242,7 @@ export default function Orders() {
                     {order.status}
                   </span>
                 </TableCell>
-                <TableCell>${order.totalPrice}</TableCell>
+                <TableCell>${parseFloat(order.totalPrice.toString()).toFixed(2)}</TableCell>
                 <TableCell>
                   {new Date(order.createdAt).toLocaleDateString()}
                 </TableCell>
@@ -263,30 +256,6 @@ export default function Orders() {
           </TableBody>
         </Table>
       </div>
-
-      {data?.pagination && (
-        <div className="flex justify-between items-center mt-4">
-          <div>
-            Showing {((page - 1) * pageSize) + 1} to {Math.min(page * pageSize, data.pagination.total)} of {data.pagination.total} orders
-          </div>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setPage(p => Math.max(1, p - 1))}
-              disabled={page === 1}
-            >
-              Previous
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => setPage(p => Math.min(data.pagination.totalPages, p + 1))}
-              disabled={page === data.pagination.totalPages}
-            >
-              Next
-            </Button>
-          </div>
-        </div>
-      )}
 
       {/* Order Details Modal */}
       <Dialog open={!!selectedOrder} onOpenChange={() => setSelectedOrder(null)}>
@@ -309,7 +278,7 @@ export default function Orders() {
             </div>
             <div>
               <h4 className="font-medium">Amount</h4>
-              <p>${selectedOrder?.totalPrice}</p>
+              <p>${selectedOrder && parseFloat(selectedOrder.totalPrice.toString()).toFixed(2)}</p>
             </div>
             <div>
               <h4 className="font-medium">Date</h4>
