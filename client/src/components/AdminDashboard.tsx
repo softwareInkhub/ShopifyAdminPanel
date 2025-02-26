@@ -98,41 +98,43 @@ export default function AdminDashboard() {
     switch (size) {
       case 'sm': return 'col-span-1';
       case 'lg': return 'col-span-2';
-      default: return 'col-span-1 md:col-span-1';
+      default: return 'col-span-1';
     }
   };
 
   const selectedWidgetData = widgets.find(w => w.id === selectedWidget);
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex justify-between items-center">
+    <div className="container mx-auto p-6 max-w-7xl">
+      <div className="flex justify-between items-center mb-8">
         <div>
-          <h1 className="text-3xl font-bold">Admin Dashboard</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-4xl font-bold tracking-tight">Admin Dashboard</h1>
+          <p className="text-muted-foreground mt-2">
             Manage and monitor your application performance
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-3">
           <Button
             variant="outline"
             size="icon"
             onClick={() => setLayout(prev => prev === 'grid' ? 'list' : 'grid')}
+            className="h-10 w-10"
           >
-            {layout === 'grid' ? <LayoutGrid className="h-4 w-4" /> : <Layout className="h-4 w-4" />}
+            {layout === 'grid' ? <LayoutGrid className="h-5 w-5" /> : <Layout className="h-5 w-5" />}
           </Button>
           <Button
             variant={isCustomizing ? "secondary" : "outline"}
             onClick={() => setIsCustomizing(!isCustomizing)}
+            className="h-10"
           >
-            <Settings2 className="h-4 w-4 mr-2" />
+            <Settings2 className="h-5 w-5 mr-2" />
             Customize
           </Button>
         </div>
       </div>
 
       {isCustomizing ? (
-        <Card>
+        <Card className="mb-8">
           <CardHeader>
             <CardTitle>Dashboard Customization</CardTitle>
             <CardDescription>
@@ -146,7 +148,7 @@ export default function AdminDashboard() {
                   <div
                     {...provided.droppableProps}
                     ref={provided.innerRef}
-                    className="space-y-2"
+                    className="space-y-3"
                   >
                     {widgets.map((widget, index) => (
                       <Draggable 
@@ -162,7 +164,7 @@ export default function AdminDashboard() {
                             className="flex items-center justify-between p-4 bg-card rounded-lg border"
                           >
                             <div>
-                              <h3 className="font-medium">{widget.title}</h3>
+                              <h3 className="font-semibold">{widget.title}</h3>
                               <p className="text-sm text-muted-foreground">
                                 {widget.description}
                               </p>
@@ -183,24 +185,31 @@ export default function AdminDashboard() {
           </CardContent>
         </Card>
       ) : (
-        <div className={`grid gap-6 ${layout === 'grid' ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3' : ''}`}>
+        <div className={`grid gap-6 ${
+          layout === 'grid' 
+            ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-4 auto-rows-fr' 
+            : 'grid-cols-1'
+        }`}>
           {widgets
             .filter(w => w.enabled)
             .map(widget => (
               <Card 
                 key={widget.id}
-                className={`${layout === 'grid' ? getWidgetSize(widget.size) : ''} 
-                  hover:shadow-lg transition-shadow duration-200 cursor-pointer`}
+                className={`
+                  ${layout === 'grid' ? getWidgetSize(widget.size) : ''} 
+                  hover:shadow-lg transition-shadow duration-200 cursor-pointer
+                  h-full
+                `}
                 onClick={() => setSelectedWidget(widget.id)}
               >
-                <CardHeader>
+                <CardHeader className="p-4">
                   <div className="flex justify-between items-center">
-                    <CardTitle>{widget.title}</CardTitle>
+                    <CardTitle className="text-lg">{widget.title}</CardTitle>
                     <ChevronRight className="h-4 w-4 text-muted-foreground" />
                   </div>
-                  <CardDescription>{widget.description}</CardDescription>
+                  <CardDescription className="text-sm">{widget.description}</CardDescription>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="p-4 pt-0">
                   {widget.component}
                 </CardContent>
               </Card>
