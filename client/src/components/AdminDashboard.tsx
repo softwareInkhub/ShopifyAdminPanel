@@ -12,12 +12,11 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Settings2, Layout, LayoutGrid, ChevronRight } from "lucide-react";
 import SyncHealthDashboard from './SyncHealthDashboard';
 
@@ -215,17 +214,16 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      <Sheet open={!!selectedWidget} onOpenChange={() => setSelectedWidget(null)}>
-        <SheetContent side="right" className="w-[90vw] sm:w-[545px]">
-          <SheetHeader>
-            <SheetTitle>{selectedWidgetData?.title}</SheetTitle>
-            <SheetDescription>{selectedWidgetData?.description}</SheetDescription>
-          </SheetHeader>
+      <Dialog open={!!selectedWidget} onOpenChange={() => setSelectedWidget(null)}>
+        <DialogContent className="max-w-4xl h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{selectedWidgetData?.title}</DialogTitle>
+          </DialogHeader>
           <div className="mt-6">
             {selectedWidgetData?.detailComponent}
           </div>
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -275,10 +273,10 @@ function SyncSummaryWidget() {
 }
 
 function OrdersSummaryWidget() {
-  const { data: orders, isLoading, error } = useQuery({
+  const { data: ordersData, isLoading, error } = useQuery({
     queryKey: ['orders'],
     queryFn: async () => {
-      const response = await fetch('/api/orders');
+      const response = await fetch('/api/orders?page=1&limit=5');
       if (!response.ok) {
         throw new Error('Failed to fetch orders');
       }
@@ -306,8 +304,8 @@ function OrdersSummaryWidget() {
     );
   }
 
-  const recentOrders = orders?.slice(0, 2) || [];
-  const totalOrders = orders?.length || 0;
+  const recentOrders = ordersData?.orders?.slice(0, 2) || [];
+  const totalOrders = ordersData?.pagination?.total || 0;
 
   return (
     <div className="space-y-2">
