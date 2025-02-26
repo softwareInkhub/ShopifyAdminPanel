@@ -34,7 +34,7 @@ interface Order {
   id: string;
   customerEmail: string;
   customerName?: string; // Added optional customerName
-  totalPrice: number;
+  totalPrice: number | string; // Modified to handle string or number
   status: string;
   createdAt: string;
   currency: string;
@@ -153,15 +153,27 @@ function Orders() {
     }
   });
 
-  // Memoized stats calculation to prevent unnecessary recalculations
+  // Memoized stats calculation with proper number handling
   const stats = useMemo(() => {
     const orders = data?.orders || [];
+    const total = data?.pagination?.total || 0;
+    const fulfilled = orders.filter(o => o.status === 'FULFILLED').length;
+
+    const orderValues = orders.map(order =>
+      typeof order.totalPrice === 'string'
+        ? parseFloat(order.totalPrice)
+        : order.totalPrice
+    );
+
+    const totalValue = orderValues.reduce((sum, val) => sum + (isNaN(val) ? 0 : val), 0);
+
     return {
-      total: data?.pagination?.total || 0,
-      fulfilled: orders.filter(o => o.status === 'FULFILLED').length,
+      total,
+      fulfilled,
       unfulfilled: orders.filter(o => o.status === 'UNFULFILLED').length,
-      totalValue: orders.reduce((sum, order) => sum + parseFloat(order.totalPrice.toString()), 0),
-      avgValue: orders.length ? orders.reduce((sum, order) => sum + parseFloat(order.totalPrice.toString()), 0) / orders.length : 0
+      fulfillmentRate: total > 0 ? (fulfilled / total) * 100 : 0,
+      totalValue,
+      avgValue: orders.length > 0 ? totalValue / orders.length : 0
     };
   }, [data]);
 
@@ -205,8 +217,8 @@ function Orders() {
               <div>
                 <h3 className="text-sm font-medium text-gray-500">Status</h3>
                 <Badge variant={order.status === 'FULFILLED' ? 'success' :
-                              order.status === 'CANCELLED' ? 'destructive' : 'warning'}
-                       className="mt-1">
+                  order.status === 'CANCELLED' ? 'destructive' : 'warning'}
+                  className="mt-1">
                   {order.status}
                 </Badge>
               </div>
@@ -249,7 +261,7 @@ function Orders() {
                     {new Intl.NumberFormat('en-US', {
                       style: 'currency',
                       currency: order.currency
-                    }).format(order.totalPrice)}
+                    }).format(parseFloat(order.totalPrice.toString()))}
                   </p>
                 </div>
                 {order.tax && (
@@ -355,7 +367,7 @@ function Orders() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600">
-              {stats.total ? Math.round((stats.fulfilled / stats.total) * 100) : 0}%
+              {stats.fulfillmentRate.toFixed(1)}%
               <TrendingUp className="inline-block ml-2 h-4 w-4" />
             </div>
           </CardContent>
@@ -366,7 +378,7 @@ function Orders() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              ${stats.totalValue.toFixed(2)}
+              ${stats.totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               <TrendingUp className="inline-block ml-2 h-4 w-4 text-green-600" />
             </div>
           </CardContent>
@@ -377,7 +389,7 @@ function Orders() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              ${stats.avgValue.toFixed(2)}
+              ${stats.avgValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
           </CardContent>
         </Card>
@@ -426,7 +438,7 @@ function Orders() {
         </Popover>
       </div>
 
-      {/* Orders Table with optimistic loading states */}
+      {/* Orders Table */}
       <div className="border rounded-lg">
         <Table>
           <TableHeader>
@@ -444,32 +456,59 @@ function Orders() {
               Array(5).fill(0).map((_, i) => (
                 <TableRow key={i}>
                   <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-                  <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                   <TableCell><Skeleton className="h-4 w-32" /></TableCell>
-                  <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                   <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-                  <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-32" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-24" /></TableCell>
                 </TableRow>
               ))
             ) : (data?.orders || []).map((order) => (
-              <TableRow key={order.id} className="cursor-pointer hover:bg-muted/50">
+              <TableRow
+                key={order.id}
+                className="cursor-pointer hover:bg-muted/50"
+                onClick={() => setSelectedOrder(order)}
+              >
                 <TableCell>{order.id}</TableCell>
-                <TableCell>{order.customerEmail}</TableCell>
                 <TableCell>
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium
-                    ${order.status === 'FULFILLED' ? 'bg-green-100 text-green-800' : ''}
-                    ${order.status === 'UNFULFILLED' ? 'bg-orange-100 text-orange-800' : ''}
-                    ${order.status === 'CANCELLED' ? 'bg-red-100 text-red-800' : ''}`
-                  }>
-                    {order.status}
-                  </span>
+                  <div>
+                    {order.customerName && (
+                      <div className="font-medium">{order.customerName}</div>
+                    )}
+                    <div className="text-sm text-muted-foreground">
+                      {order.customerEmail}
+                    </div>
+                  </div>
                 </TableCell>
-                <TableCell>${parseFloat(order.totalPrice.toString()).toFixed(2)}</TableCell>
+                <TableCell>
+                  <Badge
+                    variant={
+                      order.status === 'FULFILLED' ? 'success' :
+                        order.status === 'CANCELLED' ? 'destructive' :
+                          'warning'
+                    }
+                  >
+                    {order.status}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  {new Intl.NumberFormat('en-US', {
+                    style: 'currency',
+                    currency: order.currency || 'USD'
+                  }).format(parseFloat(order.totalPrice.toString()))}
+                </TableCell>
                 <TableCell>
                   {new Date(order.createdAt).toLocaleDateString()}
                 </TableCell>
                 <TableCell>
-                  <Button variant="ghost" size="sm" onClick={() => setSelectedOrder(order)}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedOrder(order);
+                    }}
+                  >
                     View Details
                   </Button>
                 </TableCell>

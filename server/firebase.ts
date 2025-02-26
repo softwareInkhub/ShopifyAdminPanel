@@ -28,7 +28,7 @@ async function initializeFirebase() {
     const db = getFirestore(app);
     logger.server.info(`Firestore instance created in ${Date.now() - startTime}ms`);
 
-    // Test connection with a simple operation
+    // Test connection
     await db.collection('test').doc('connection').set({
       timestamp: new Date(),
       status: 'connected'
@@ -49,10 +49,37 @@ async function initializeFirebase() {
     if (ordersSnapshot.empty) {
       const sampleOrders = Array.from({ length: 50 }, (_, i) => ({
         customerEmail: `customer${i + 1}@example.com`,
+        customerName: `Customer ${i + 1}`,
         totalPrice: Math.round(Math.random() * 1000 * 100) / 100,
+        tax: Math.round(Math.random() * 100 * 100) / 100,
         status: ['UNFULFILLED', 'FULFILLED', 'CANCELLED'][Math.floor(Math.random() * 3)],
         createdAt: new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000),
-        currency: 'USD'
+        currency: 'USD',
+        items: Array.from({ length: Math.floor(Math.random() * 5) + 1 }, (_, j) => ({
+          title: `Product ${j + 1}`,
+          quantity: Math.floor(Math.random() * 5) + 1,
+          price: Math.round(Math.random() * 200 * 100) / 100
+        })),
+        notes: Math.random() > 0.5 ? `Sample order notes for order ${i + 1}` : undefined,
+        shippingAddress: {
+          street: `${i + 100} Main St`,
+          city: 'Sample City',
+          state: 'ST',
+          zip: '12345'
+        },
+        billingAddress: {
+          street: `${i + 100} Main St`,
+          city: 'Sample City',
+          state: 'ST',
+          zip: '12345'
+        },
+        paymentMethod: 'Credit Card',
+        fulfillmentStatus: 'Pending',
+        tags: ['sample', `tag-${i}`],
+        metadata: {
+          source: 'sample_data',
+          version: '1.0'
+        }
       }));
 
       for (const order of sampleOrders) {
