@@ -100,51 +100,61 @@ const CACHE_TTL = 300; // 5 minutes
 
 // Helper function to fetch a single page of orders
 async function fetchOrdersPage(page: number, limit: number, status?: string) {
-    const db = await getDb();
-    let query = db.collection('orders');
+  const db = await getDb();
+  let query = db.collection('orders');
 
-    if (status && status !== 'all') {
-      query = query.where('status', '==', status);
-    }
-
-    // Get total count first
-    const totalSnapshot = await query.get();
-    const total = totalSnapshot.size;
-
-    // Apply ordering and pagination
-    query = query.orderBy('createdAt', 'desc')
-                .limit(limit)
-                .offset((page - 1) * limit);
-
-    const ordersSnapshot = await query.get();
-
-    let orders = [];
-    ordersSnapshot.forEach((doc) => {
-      try {
-        const data = doc.data();
-        orders.push({
-          id: doc.id,
-          customerEmail: data.customerEmail || 'N/A',
-          totalPrice: parseFloat(data.totalPrice || 0).toFixed(2),
-          status: data.status || 'UNFULFILLED',
-          createdAt: data.createdAt?.toDate?.() || new Date(data.createdAt) || new Date(),
-          currency: data.currency || 'USD'
-        });
-      } catch (error) {
-        logger.server.error(`Error transforming order ${doc.id}:`, error);
-      }
-    });
-
-    return {
-      orders,
-      pagination: {
-        total,
-        currentPage: page,
-        pageSize: limit,
-        totalPages: Math.ceil(total / limit)
-      }
-    };
+  if (status && status !== 'all') {
+    query = query.where('status', '==', status);
   }
+
+  // Get total count first
+  const totalSnapshot = await query.get();
+  const total = totalSnapshot.size;
+
+  // Apply ordering and pagination
+  query = query.orderBy('createdAt', 'desc')
+              .limit(limit)
+              .offset((page - 1) * limit);
+
+  const ordersSnapshot = await query.get();
+
+  let orders = [];
+  ordersSnapshot.forEach((doc) => {
+    try {
+      const data = doc.data();
+      orders.push({
+        id: doc.id,
+        customerEmail: data.customerEmail || 'N/A',
+        customerName: data.customerName,
+        totalPrice: parseFloat(data.totalPrice || 0).toFixed(2),
+        tax: data.tax,
+        status: data.status || 'UNFULFILLED',
+        createdAt: data.createdAt?.toDate?.() || new Date(data.createdAt) || new Date(),
+        currency: data.currency || 'USD',
+        items: data.items || [],
+        notes: data.notes,
+        shippingAddress: data.shippingAddress,
+        billingAddress: data.billingAddress,
+        paymentMethod: data.paymentMethod,
+        fulfillmentStatus: data.fulfillmentStatus,
+        tags: data.tags || [],
+        metadata: data.metadata || {}
+      });
+    } catch (error) {
+      logger.server.error(`Error transforming order ${doc.id}:`, error);
+    }
+  });
+
+  return {
+    orders,
+    pagination: {
+      total,
+      currentPage: page,
+      pageSize: limit,
+      totalPages: Math.ceil(total / limit)
+    }
+  };
+}
 
 
 export async function registerRoutes(app: Express) {

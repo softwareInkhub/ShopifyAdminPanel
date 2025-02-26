@@ -3,9 +3,9 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useIndexedDB } from "@/hooks/useIndexedDB";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Calendar } from "@/components/ui/calendar"; 
+import { Calendar } from "@/components/ui/calendar";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -13,6 +13,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Search, Calendar as CalendarIcon, TrendingUp, RefreshCw } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { Separator } from "@/components/ui/separator";
+import { Badge } from "@/components/ui/badge";
 
 // Order status options with colors
 const ORDER_STATUSES = {
@@ -22,13 +24,23 @@ const ORDER_STATUSES = {
   CANCELLED: { label: "Cancelled", color: "red" },
 };
 
+interface OrderItem {
+  title: string;
+  quantity: number;
+  price: number;
+}
+
 interface Order {
   id: string;
   customerEmail: string;
+  customerName?: string; // Added optional customerName
   totalPrice: number;
   status: string;
   createdAt: string;
   currency: string;
+  tax?: number; // Added optional tax
+  notes?: string; // Added optional notes
+  items?: OrderItem[]; // Added optional items
 }
 
 interface OrdersResponse {
@@ -62,7 +74,6 @@ function Orders() {
       return cachedData;
     }
 
-    // If not in IndexedDB, fetch from API
     const params = new URLSearchParams();
     if (filter !== 'all') params.append('status', filter);
     if (search) params.append('search', search);
@@ -166,6 +177,142 @@ function Orders() {
 
     setPage(newPage);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Enhanced Order Details Modal
+  const OrderDetailsModal = ({ order, onClose }: { order: Order | null; onClose: () => void }) => {
+    if (!order) return null;
+
+    const statusColors = {
+      FULFILLED: 'bg-green-100 text-green-800',
+      UNFULFILLED: 'bg-orange-100 text-orange-800',
+      CANCELLED: 'bg-red-100 text-red-800'
+    };
+
+    return (
+      <Dialog open={!!order} onOpenChange={onClose}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-bold">Order Details</DialogTitle>
+            <DialogDescription>
+              Complete information for order #{order.id}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="mt-6 space-y-6">
+            {/* Order Status Section */}
+            <div className="flex justify-between items-center">
+              <div>
+                <h3 className="text-sm font-medium text-gray-500">Status</h3>
+                <Badge variant={order.status === 'FULFILLED' ? 'success' :
+                              order.status === 'CANCELLED' ? 'destructive' : 'warning'}
+                       className="mt-1">
+                  {order.status}
+                </Badge>
+              </div>
+              <div>
+                <h3 className="text-sm font-medium text-gray-500">Order Date</h3>
+                <p className="mt-1 text-sm">
+                  {new Date(order.createdAt).toLocaleString()}
+                </p>
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Customer Information */}
+            <div>
+              <h3 className="text-lg font-semibold mb-3">Customer Information</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <h4 className="text-sm font-medium text-gray-500">Email</h4>
+                  <p className="mt-1">{order.customerEmail}</p>
+                </div>
+                {order.customerName && (
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-500">Name</h4>
+                    <p className="mt-1">{order.customerName}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Financial Information */}
+            <div>
+              <h3 className="text-lg font-semibold mb-3">Financial Details</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <h4 className="text-sm font-medium text-gray-500">Total Amount</h4>
+                  <p className="mt-1 text-xl font-bold">
+                    {new Intl.NumberFormat('en-US', {
+                      style: 'currency',
+                      currency: order.currency
+                    }).format(order.totalPrice)}
+                  </p>
+                </div>
+                {order.tax && (
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-500">Tax</h4>
+                    <p className="mt-1">
+                      {new Intl.NumberFormat('en-US', {
+                        style: 'currency',
+                        currency: order.currency
+                      }).format(order.tax)}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Order Items Section */}
+            {order.items && order.items.length > 0 && (
+              <>
+                <Separator />
+                <div>
+                  <h3 className="text-lg font-semibold mb-3">Order Items</h3>
+                  <div className="space-y-3">
+                    {order.items.map((item, index) => (
+                      <div key={index} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                        <div>
+                          <p className="font-medium">{item.title}</p>
+                          <p className="text-sm text-gray-500">Quantity: {item.quantity}</p>
+                        </div>
+                        <p className="font-medium">
+                          {new Intl.NumberFormat('en-US', {
+                            style: 'currency',
+                            currency: order.currency
+                          }).format(item.price)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Additional Information */}
+            {order.notes && (
+              <>
+                <Separator />
+                <div>
+                  <h3 className="text-lg font-semibold mb-2">Notes</h3>
+                  <p className="text-sm text-gray-600">{order.notes}</p>
+                </div>
+              </>
+            )}
+
+            <div className="flex justify-end space-x-3 mt-6">
+              <Button variant="outline" onClick={onClose}>Close</Button>
+              {order.status === 'UNFULFILLED' && (
+                <Button>Mark as Fulfilled</Button>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
   };
 
   return (
@@ -357,38 +504,11 @@ function Orders() {
         </div>
       )}
 
-      {/* Order Details Modal */}
-      <Dialog open={!!selectedOrder} onOpenChange={() => setSelectedOrder(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Order Details</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <h4 className="font-medium">Order ID</h4>
-              <p>{selectedOrder?.id}</p>
-            </div>
-            <div>
-              <h4 className="font-medium">Customer</h4>
-              <p>{selectedOrder?.customerEmail}</p>
-            </div>
-            <div>
-              <h4 className="font-medium">Status</h4>
-              <p>{selectedOrder?.status}</p>
-            </div>
-            <div>
-              <h4 className="font-medium">Amount</h4>
-              <p>${selectedOrder && parseFloat(selectedOrder.totalPrice.toString()).toFixed(2)}</p>
-            </div>
-            <div>
-              <h4 className="font-medium">Date</h4>
-              <p>
-                {selectedOrder && new Date(selectedOrder.createdAt).toLocaleString()}
-              </p>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* Use the enhanced OrderDetailsModal */}
+      <OrderDetailsModal
+        order={selectedOrder}
+        onClose={() => setSelectedOrder(null)}
+      />
     </div>
   );
 }
