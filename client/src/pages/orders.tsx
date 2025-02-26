@@ -12,6 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { Package, Search, Calendar as CalendarIcon, Filter, ArrowUpDown, TrendingUp, DollarSign, RefreshCw } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 // Order status options with colors
 const ORDER_STATUSES = {
@@ -35,7 +36,7 @@ interface OrdersResponse {
   total: number;
 }
 
-export default function Orders() {
+function Orders() {
   const { toast } = useToast();
   const [filter, setFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
@@ -288,5 +289,13 @@ export default function Orders() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+export default function OrdersPage() {
+  return (
+    <ErrorBoundary>
+      <Orders />
+    </ErrorBoundary>
   );
 }

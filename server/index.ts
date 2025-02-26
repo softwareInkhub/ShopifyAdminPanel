@@ -42,6 +42,7 @@ app.use((req, res, next) => {
 // Basic error handling
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   logger.server.error('Unhandled error');
+  logger.server.error(err instanceof Error ? err.message : 'Unknown error');
   res.status(500).json({ 
     status: 'error',
     message: 'Internal Server Error'
@@ -104,9 +105,11 @@ app.get("/health", async (_req, res) => {
 // Handle process errors
 process.on('uncaughtException', (error) => {
   logger.server.error('Uncaught exception');
+  logger.server.error(error instanceof Error ? error.message : 'Unknown error');
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason) => {
   logger.server.error('Unhandled rejection');
+  logger.server.error(reason instanceof Error ? reason.message : 'Unknown rejection');
 });
