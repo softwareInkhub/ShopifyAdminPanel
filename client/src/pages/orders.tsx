@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -9,7 +9,6 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient } from "@/lib/queryClient";
 import { Package, Search, Calendar as CalendarIcon, Filter, ArrowUpDown, TrendingUp, DollarSign, RefreshCw } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -49,8 +48,9 @@ function Orders() {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [page, setPage] = useState(1);
   const pageSize = 100; // Show 100 orders per page
+  const queryClient = useQueryClient();
 
-  // Fetch orders with all params
+  // Main query with prefetching logic
   const { data, isLoading } = useQuery<OrdersResponse>({
     queryKey: ['/api/orders', filter, search, dateRange, page, pageSize],
     queryFn: async () => {
@@ -65,8 +65,33 @@ function Orders() {
       const res = await fetch(`/api/orders?${params.toString()}`);
       if (!res.ok) throw new Error('Failed to fetch orders');
       return res.json();
-    }
+    },
+    staleTime: 5 * 60 * 1000, // Data stays fresh for 5 minutes
+    cacheTime: 30 * 60 * 1000, // Cache for 30 minutes
   });
+
+  // Prefetch next page
+  useEffect(() => {
+    if (data?.pagination.totalPages > page) {
+      const nextPage = page + 1;
+      queryClient.prefetchQuery({
+        queryKey: ['/api/orders', filter, search, dateRange, nextPage, pageSize],
+        queryFn: async () => {
+          const params = new URLSearchParams();
+          if (filter !== 'all') params.append('status', filter);
+          if (search) params.append('search', search);
+          if (dateRange.from) params.append('from', dateRange.from.toISOString());
+          if (dateRange.to) params.append('to', dateRange.to.toISOString());
+          params.append('page', nextPage.toString());
+          params.append('pageSize', pageSize.toString());
+
+          const res = await fetch(`/api/orders?${params.toString()}`);
+          if (!res.ok) throw new Error('Failed to fetch orders');
+          return res.json();
+        },
+      });
+    }
+  }, [page, data, filter, search, dateRange, queryClient]);
 
   // Sync orders mutation
   const syncOrdersMutation = useMutation({
@@ -91,7 +116,7 @@ function Orders() {
       toast({ title: "Order sync started" });
     },
     onError: () => {
-      toast({ 
+      toast({
         title: "Failed to sync orders",
         variant: "destructive"
       });
@@ -108,6 +133,13 @@ function Orders() {
     avgValue: orders.length ? orders.reduce((sum, order) => sum + parseFloat(order.totalPrice.toString()), 0) / orders.length : 0
   };
 
+  // Handle page changes
+  const handlePageChange = (newPage: number) => {
+    setPage(newPage);
+    // Scroll to top when page changes
+    window.scrollTo(0, 0);
+  };
+
   return (
     <div className="p-8 space-y-6">
       <div className="flex justify-between items-center">
@@ -118,7 +150,7 @@ function Orders() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button 
+          <Button
             onClick={() => syncOrdersMutation.mutate()}
             disabled={syncOrdersMutation.isPending}
           >
@@ -281,14 +313,14 @@ function Orders() {
           <div className="flex gap-2">
             <Button
               variant="outline"
-              onClick={() => setPage(p => Math.max(1, p - 1))}
+              onClick={() => handlePageChange(Math.max(1, page - 1))}
               disabled={page === 1}
             >
               Previous
             </Button>
             <Button
               variant="outline"
-              onClick={() => setPage(p => Math.min(data.pagination.totalPages, p + 1))}
+              onClick={() => handlePageChange(Math.min(data.pagination.totalPages, page + 1))}
               disabled={page === data.pagination.totalPages}
             >
               Next

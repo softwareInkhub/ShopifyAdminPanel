@@ -2,33 +2,49 @@ import type { Express } from "express";
 import { getDb } from "./firebase";
 import { logger } from './logger';
 
-// Simplified in-memory cache
+// Enhanced cache manager with batch operations
 class CacheManager {
-  private memoryCache = new Map<string, string>();
+  private memoryCache = new Map<string, { data: any; expiry: number }>();
+  private backgroundJobs = new Map<string, Promise<void>>();
 
   initialize() {
-    logger.cache.info('Initialized in-memory cache manager');
+    logger.cache.info('Initialized enhanced cache manager');
   }
 
-  async get(key: string): Promise<string | null> {
+  async get(key: string): Promise<any> {
     try {
-      const value = this.memoryCache.get(key);
-      if (value) {
+      const item = this.memoryCache.get(key);
+      if (item && item.expiry > Date.now()) {
         logger.cache.debug('Cache hit');
-        return value;
+        return item.data;
       }
+      logger.cache.debug('Cache miss');
     } catch (error) {
       logger.cache.error('Cache get error');
     }
     return null;
   }
 
-  async set(key: string, value: string, ttl: number = 300): Promise<void> {
+  async set(key: string, data: any, ttl: number = 300): Promise<void> {
     try {
-      this.memoryCache.set(key, value);
-      setTimeout(() => this.memoryCache.delete(key), ttl * 1000);
+      this.memoryCache.set(key, {
+        data,
+        expiry: Date.now() + (ttl * 1000)
+      });
     } catch (error) {
       logger.cache.error('Cache set error');
+    }
+  }
+
+  async batchPrefetch(keys: string[], fetchFn: (key: string) => Promise<any>): Promise<void> {
+    for (const key of keys) {
+      if (!this.backgroundJobs.has(key)) {
+        const job = fetchFn(key).then(data => {
+          if (data) this.set(key, data);
+          this.backgroundJobs.delete(key);
+        });
+        this.backgroundJobs.set(key, job);
+      }
     }
   }
 }
@@ -37,9 +53,10 @@ const cacheManager = new CacheManager();
 cacheManager.initialize();
 
 const DEFAULT_PAGE_SIZE = 100;
+const CACHE_TTL = 300; // 5 minutes
 
 export async function registerRoutes(app: Express) {
-  // Orders endpoint with enhanced error handling and pagination
+  // Enhanced orders endpoint with background prefetching
   app.get("/api/orders", async (req, res) => {
     try {
       logger.server.info('Fetching orders...');
@@ -57,73 +74,28 @@ export async function registerRoutes(app: Express) {
       const cacheKey = `orders:${JSON.stringify({ status, search, page, pageSize })}`;
       const cachedData = await cacheManager.get(cacheKey);
       if (cachedData) {
+        // Start prefetching next page in background
+        const nextPageKey = `orders:${JSON.stringify({ status, search, page: currentPage + 1, pageSize })}`;
+        cacheManager.batchPrefetch([nextPageKey], async (key) => {
+          const nextPage = await fetchOrdersPage(parseInt(page as string) + 1, limit, status as string);
+          return nextPage;
+        });
+
         logger.server.info('Returning cached orders data');
-        return res.json(JSON.parse(cachedData));
+        return res.json(cachedData);
       }
 
-      // Get Firestore instance
-      const db = await getDb();
-
-      // Build the query
-      let query = db.collection('orders');
-
-      // Apply status filter if specified
-      if (status && status !== 'all') {
-        query = query.where('status', '==', status);
-      }
-
-      // Get total count first
-      const totalSnapshot = await query.get();
-      const total = totalSnapshot.size;
-
-      // Apply ordering and pagination
-      query = query.orderBy('createdAt', 'desc')
-                  .limit(limit)
-                  .offset((currentPage - 1) * limit);
-
-      const ordersSnapshot = await query.get();
-      logger.server.info(`Successfully fetched ${ordersSnapshot.size} orders from Firebase`);
-
-      // Transform data
-      let orders = [];
-      ordersSnapshot.forEach((doc) => {
-        try {
-          const data = doc.data();
-          orders.push({
-            id: doc.id,
-            customerEmail: data.customerEmail || 'N/A',
-            totalPrice: parseFloat(data.totalPrice || 0).toFixed(2),
-            status: data.status || 'UNFULFILLED',
-            createdAt: data.createdAt?.toDate?.() || new Date(data.createdAt) || new Date(),
-            currency: data.currency || 'USD'
-          });
-        } catch (error) {
-          logger.server.error(`Error transforming order ${doc.id}:`, error);
-        }
-      });
-
-      // Apply search filter if needed
-      if (search) {
-        const searchStr = search.toString().toLowerCase();
-        orders = orders.filter(order =>
-          order.customerEmail.toLowerCase().includes(searchStr) ||
-          order.id.toLowerCase().includes(searchStr)
-        );
-      }
-
-      const result = {
-        orders,
-        pagination: {
-          total,
-          currentPage,
-          pageSize: limit,
-          totalPages: Math.ceil(total / limit)
-        }
-      };
+      const result = await fetchOrdersPage(currentPage, limit, status as string);
 
       // Cache the results
-      await cacheManager.set(cacheKey, JSON.stringify(result));
-      logger.server.info(`Processed and returning ${orders.length} orders for page ${currentPage}`);
+      await cacheManager.set(cacheKey, result, CACHE_TTL);
+
+      // Prefetch next page in background
+      const nextPageKey = `orders:${JSON.stringify({ status, search, page: currentPage + 1, pageSize })}`;
+      cacheManager.batchPrefetch([nextPageKey], async (key) => {
+        const nextPage = await fetchOrdersPage(currentPage + 1, limit, status as string);
+        return nextPage;
+      });
 
       res.json(result);
     } catch (error) {
@@ -134,6 +106,54 @@ export async function registerRoutes(app: Express) {
       });
     }
   });
+
+  // Helper function to fetch a single page of orders
+  async function fetchOrdersPage(page: number, limit: number, status?: string) {
+    const db = await getDb();
+    let query = db.collection('orders');
+
+    if (status && status !== 'all') {
+      query = query.where('status', '==', status);
+    }
+
+    // Get total count first
+    const totalSnapshot = await query.get();
+    const total = totalSnapshot.size;
+
+    // Apply ordering and pagination
+    query = query.orderBy('createdAt', 'desc')
+                .limit(limit)
+                .offset((page - 1) * limit);
+
+    const ordersSnapshot = await query.get();
+
+    let orders = [];
+    ordersSnapshot.forEach((doc) => {
+      try {
+        const data = doc.data();
+        orders.push({
+          id: doc.id,
+          customerEmail: data.customerEmail || 'N/A',
+          totalPrice: parseFloat(data.totalPrice || 0).toFixed(2),
+          status: data.status || 'UNFULFILLED',
+          createdAt: data.createdAt?.toDate?.() || new Date(data.createdAt) || new Date(),
+          currency: data.currency || 'USD'
+        });
+      } catch (error) {
+        logger.server.error(`Error transforming order ${doc.id}:`, error);
+      }
+    });
+
+    return {
+      orders,
+      pagination: {
+        total,
+        currentPage: page,
+        pageSize: limit,
+        totalPages: Math.ceil(total / limit)
+      }
+    };
+  }
 
   // Products endpoint with pagination (similar structure)
   app.get("/api/products", async (req, res) => {
