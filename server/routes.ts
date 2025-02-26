@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { db } from "./firebase";
+import { getDb } from "./firebase";
 import { logger } from './logger';
 
 // Simplified in-memory cache
@@ -61,20 +61,22 @@ export async function registerRoutes(app: Express) {
         return res.json(JSON.parse(cachedData));
       }
 
-      // Query Firebase with pagination
-      const ordersRef = db.collection('orders');
-      let query = ordersRef;
+      // Get Firestore instance
+      const db = await getDb();
 
-      // Get total count first (we'll fetch all to get accurate count)
-      const totalSnapshot = await ordersRef.get();
-      const total = totalSnapshot.docs.length;
+      // Build the query
+      let query = db.collection('orders');
 
       // Apply status filter if specified
       if (status && status !== 'all') {
         query = query.where('status', '==', status);
       }
 
-      // Apply pagination with ordering
+      // Get total count first
+      const totalSnapshot = await query.get();
+      const total = totalSnapshot.size;
+
+      // Apply ordering and pagination
       query = query.orderBy('createdAt', 'desc')
                   .limit(limit)
                   .offset((currentPage - 1) * limit);
@@ -84,7 +86,7 @@ export async function registerRoutes(app: Express) {
 
       // Transform data
       let orders = [];
-      ordersSnapshot.forEach(doc => {
+      ordersSnapshot.forEach((doc) => {
         try {
           const data = doc.data();
           orders.push({
@@ -100,7 +102,7 @@ export async function registerRoutes(app: Express) {
         }
       });
 
-      // Apply search filter after fetching
+      // Apply search filter if needed
       if (search) {
         const searchStr = search.toString().toLowerCase();
         orders = orders.filter(order =>
@@ -156,9 +158,11 @@ export async function registerRoutes(app: Express) {
         return res.json(JSON.parse(cachedData));
       }
 
-      // Query Firebase with pagination
-      const productsRef = db.collection('products');
-      let query = productsRef;
+      // Get Firestore instance
+      const db = await getDb();
+
+      // Build the query
+      let query = db.collection('products');
 
       // Apply filters before pagination
       if (status && status !== 'all') {
@@ -170,20 +174,19 @@ export async function registerRoutes(app: Express) {
 
       // Get total count
       const totalSnapshot = await query.get();
-      const total = totalSnapshot.docs.length;
+      const total = totalSnapshot.size;
 
-      // Apply pagination
-      query = query
-        .orderBy('createdAt', 'desc')
-        .limit(limit)
-        .offset((currentPage - 1) * limit);
+      // Apply pagination with ordering
+      query = query.orderBy('createdAt', 'desc')
+                  .limit(limit)
+                  .offset((currentPage - 1) * limit);
 
       const productsSnapshot = await query.get();
       logger.server.info(`Successfully fetched ${productsSnapshot.size} products from Firebase`);
 
       // Transform data
       let products = [];
-      productsSnapshot.forEach(doc => {
+      productsSnapshot.forEach((doc) => {
         try {
           const data = doc.data();
           products.push({
@@ -198,11 +201,11 @@ export async function registerRoutes(app: Express) {
             rawData: data.rawData || {}
           });
         } catch (error) {
-          logger.server.error('Error transforming product data');
+          logger.server.error(`Error transforming product ${doc.id}:`, error);
         }
       });
 
-      // Apply search filter after fetching
+      // Apply search filter if needed
       if (search) {
         const searchStr = search.toString().toLowerCase();
         products = products.filter(product =>
@@ -227,7 +230,7 @@ export async function registerRoutes(app: Express) {
 
       res.json(result);
     } catch (error) {
-      logger.server.error('Products fetch error');
+      logger.server.error('Products fetch error:', error);
       res.status(500).json({
         message: 'Failed to fetch products',
         error: error instanceof Error ? error.message : 'Unknown error'
