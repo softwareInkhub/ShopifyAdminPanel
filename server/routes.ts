@@ -339,6 +339,77 @@ export async function registerRoutes(app: Express) {
     }
   });
 
+  // Add these new endpoints after existing routes
+  // Sync Health Monitoring Endpoints
+  app.get("/api/sync/health", async (_req, res) => {
+    try {
+      const metrics = await storage.getSyncMetrics();
+      const activeJobs = await storage.listJobs({ status: 'processing' });
+      const recentErrors = await storage.getRecentErrors();
+
+      res.json({
+        status: 'success',
+        metrics: {
+          syncSpeed: metrics.currentSpeed || 0,
+          itemsProcessed: metrics.totalProcessed || 0,
+          cacheHitRate: metrics.cacheHitRate || 0,
+          errorRate: metrics.errorRate || 0,
+          activeJobs: activeJobs.length,
+          lastSync: metrics.lastSyncTime,
+          recentErrors
+        }
+      });
+    } catch (error: any) {
+      console.error('Health check error:', error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Advanced GraphQL Search Endpoint
+  app.post("/api/graphql/search", async (req, res) => {
+    try {
+      const { query, filters, pagination } = req.body;
+
+      // Build the cache key based on query parameters
+      const cacheKey = `search:${JSON.stringify({ query, filters, pagination })}`;
+
+      // Check cache first
+      const cachedResult = await storage.getFromCache(cacheKey);
+      if (cachedResult) {
+        console.log('Cache hit for search query');
+        return res.json(cachedResult);
+      }
+
+      // If not in cache, perform the search
+      const searchResults = await storage.advancedSearch(query, filters, pagination);
+
+      // Cache the results
+      await storage.setInCache(cacheKey, searchResults, 300); // Cache for 5 minutes
+
+      res.json(searchResults);
+    } catch (error: any) {
+      console.error('Search error:', error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Cache Performance Metrics
+  app.get("/api/cache/metrics", async (_req, res) => {
+    try {
+      const metrics = await storage.getCacheMetrics();
+      res.json({
+        hitRate: metrics.hitRate,
+        missRate: metrics.missRate,
+        size: metrics.currentSize,
+        itemCount: metrics.itemCount,
+        averageResponseTime: metrics.avgResponseTime
+      });
+    } catch (error: any) {
+      console.error('Cache metrics error:', error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
