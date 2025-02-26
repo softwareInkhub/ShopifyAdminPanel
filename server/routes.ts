@@ -37,65 +37,55 @@ const cacheManager = new CacheManager();
 cacheManager.initialize();
 
 export async function registerRoutes(app: Express) {
-  // Orders endpoint with pagination
+  // Orders endpoint with enhanced error handling
   app.get("/api/orders", async (req, res) => {
     try {
+      logger.server.info('Fetching orders...');
       const { status, search, from, to, page = 1, limit = 10 } = req.query;
       const cacheKey = `orders:${JSON.stringify({ status, search, from, to, page, limit })}`;
 
       // Try cache first
       const cachedData = await cacheManager.get(cacheKey);
       if (cachedData) {
+        logger.server.info('Returning cached orders data');
         return res.json(JSON.parse(cachedData));
       }
 
-      // Query Firebase with proper filtering
+      // Query Firebase with proper filtering and error handling
       let ordersSnapshot;
       try {
-        let query = db.collection('orders');
-
-        // Apply filters
-        if (status && status !== 'all') {
-          query = query.where('status', '==', status);
-        }
-
-        ordersSnapshot = await query.get();
-        logger.server.info(`Firebase query executed successfully, got ${ordersSnapshot.size} orders`);
+        const ordersRef = db.collection('orders');
+        logger.server.info('Attempting to query Firebase orders collection');
+        ordersSnapshot = await ordersRef.get();
+        logger.server.info(`Successfully fetched ${ordersSnapshot.size} orders from Firebase`);
       } catch (error) {
-        logger.server.error('Failed to query orders from Firebase');
+        logger.server.error('Failed to query orders from Firebase:', error);
         throw error;
       }
 
-      // Transform data with proper date handling
-      let orders = ordersSnapshot.docs.map(doc => {
-        const data = doc.data();
+      // Transform data with proper error handling
+      let orders = [];
+      for (const doc of ordersSnapshot.docs) {
         try {
-          return {
+          const data = doc.data();
+          orders.push({
             id: doc.id,
             customerEmail: data.customerEmail || 'N/A',
             totalPrice: parseFloat(data.totalPrice || 0),
             status: data.status || 'UNFULFILLED',
             createdAt: data.createdAt?.toDate?.() || new Date(data.createdAt) || new Date(),
             currency: data.currency || 'USD'
-          };
+          });
         } catch (error) {
-          logger.server.error(`Error transforming order ${doc.id}`);
-          return null;
+          logger.server.error(`Error transforming order ${doc.id}:`, error);
         }
-      }).filter(Boolean);
-
-      // Apply date filters in memory
-      if (from) {
-        const fromDate = new Date(from.toString());
-        orders = orders.filter(order => order.createdAt >= fromDate);
       }
 
-      if (to) {
-        const toDate = new Date(to.toString());
-        orders = orders.filter(order => order.createdAt <= toDate);
+      // Apply filters
+      if (status && status !== 'all') {
+        orders = orders.filter(order => order.status === status);
       }
 
-      // Apply text search if provided
       if (search) {
         const searchStr = search.toString().toLowerCase();
         orders = orders.filter(order =>
@@ -122,51 +112,49 @@ export async function registerRoutes(app: Express) {
       // Cache the results
       await cacheManager.set(cacheKey, JSON.stringify(result));
 
-      logger.server.info(`Retrieved and processed ${orders.length} orders`);
+      logger.server.info(`Successfully processed and returning ${paginatedOrders.length} orders`);
       res.json(result);
     } catch (error) {
-      logger.server.error('Orders fetch error');
-      res.status(500).json({ message: 'Failed to fetch orders' });
+      logger.server.error('Orders fetch error:', error);
+      res.status(500).json({ 
+        message: 'Failed to fetch orders',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
     }
   });
 
-  // Products endpoint
+  // Products endpoint with enhanced error handling
   app.get("/api/products", async (req, res) => {
     try {
+      logger.server.info('Fetching products...');
       const { search, category, status, page = 1, limit = 10 } = req.query;
       const cacheKey = `products:${JSON.stringify({ search, category, status, page, limit })}`;
 
       // Try cache first
       const cachedData = await cacheManager.get(cacheKey);
       if (cachedData) {
+        logger.server.info('Returning cached products data');
         return res.json(JSON.parse(cachedData));
       }
 
       // Query Firebase
       let productsSnapshot;
       try {
-        let query = db.collection('products');
-
-        // Apply filters
-        if (status && status !== 'all') {
-          query = query.where('status', '==', status);
-        }
-        if (category && category !== 'all') {
-          query = query.where('category', '==', category);
-        }
-
-        productsSnapshot = await query.get();
-        logger.server.info(`Firebase query executed successfully, got ${productsSnapshot.size} products`);
+        const productsRef = db.collection('products');
+        logger.server.info('Attempting to query Firebase products collection');
+        productsSnapshot = await productsRef.get();
+        logger.server.info(`Successfully fetched ${productsSnapshot.size} products from Firebase`);
       } catch (error) {
-        logger.server.error('Failed to query products from Firebase');
+        logger.server.error('Failed to query products from Firebase:', error);
         throw error;
       }
 
       // Transform data
-      let products = productsSnapshot.docs.map(doc => {
-        const data = doc.data();
+      let products = [];
+      for (const doc of productsSnapshot.docs) {
         try {
-          return {
+          const data = doc.data();
+          products.push({
             id: doc.id,
             title: data.title || 'Untitled Product',
             description: data.description || '',
@@ -174,14 +162,21 @@ export async function registerRoutes(app: Express) {
             status: data.status || 'DRAFT',
             category: data.category || 'Uncategorized',
             createdAt: data.createdAt?.toDate?.() || new Date(data.createdAt) || new Date()
-          };
+          });
         } catch (error) {
-          logger.server.error(`Error transforming product ${doc.id}`);
-          return null;
+          logger.server.error(`Error transforming product ${doc.id}:`, error);
         }
-      }).filter(Boolean);
+      }
 
-      // Apply text search if provided
+      // Apply filters
+      if (status && status !== 'all') {
+        products = products.filter(product => product.status === status);
+      }
+
+      if (category && category !== 'all') {
+        products = products.filter(product => product.category === category);
+      }
+
       if (search) {
         const searchStr = search.toString().toLowerCase();
         products = products.filter(product =>
@@ -208,11 +203,14 @@ export async function registerRoutes(app: Express) {
       // Cache the results
       await cacheManager.set(cacheKey, JSON.stringify(result));
 
-      logger.server.info(`Retrieved and processed ${products.length} products`);
+      logger.server.info(`Successfully processed and returning ${paginatedProducts.length} products`);
       res.json(result);
     } catch (error) {
-      logger.server.error('Products fetch error');
-      res.status(500).json({ message: 'Failed to fetch products' });
+      logger.server.error('Products fetch error:', error);
+      res.status(500).json({ 
+        message: 'Failed to fetch products',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
     }
   });
 
