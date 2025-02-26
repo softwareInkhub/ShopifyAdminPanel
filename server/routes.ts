@@ -131,27 +131,28 @@ async function fetchOrdersPage(page: number, limit: number, status?: string) {
         const data = doc.data();
         logger.server.info(`Order data for ${doc.id}:`, JSON.stringify(data, null, 2));
 
+        const billingAddress = data.billingAddress || {};
+
         orders.push({
           id: doc.id,
           customerEmail: data.customerEmail || 'N/A',
-          customerName: data.customerName || 'Unknown Customer',
-          totalPrice: parseFloat(data.totalPrice || 0).toFixed(2),
+          customerName: data.customerName || `${billingAddress.firstName || ''} ${billingAddress.lastName || ''}`.trim() || 'Unknown Customer',
+          totalPrice: data.totalPrice ? parseFloat(data.totalPrice).toFixed(2) : '0.00',
           tax: data.tax ? parseFloat(data.tax).toFixed(2) : undefined,
           status: data.status || 'UNFULFILLED',
           createdAt: data.createdAt?.toDate?.() || new Date(data.createdAt) || new Date(),
           currency: data.currency || 'USD',
           items: Array.isArray(data.items) ? data.items.map(item => ({
-            title: item.title || 'Unknown Product',
-            quantity: item.quantity || 1,
+            title: item.title || item.name || 'Unknown Product',
+            quantity: parseInt(item.quantity) || 1,
             price: parseFloat(item.price || 0).toFixed(2)
           })) : [],
-          notes: data.notes,
+          notes: data.notes || data.orderNotes,
           shippingAddress: data.shippingAddress,
           billingAddress: data.billingAddress,
           paymentMethod: data.paymentMethod,
-          fulfillmentStatus: data.fulfillmentStatus,
-          tags: data.tags || [],
-          metadata: data.metadata || {}
+          fulfillmentStatus: data.fulfillmentStatus || data.status,
+          tags: data.tags || []
         });
       } catch (error) {
         logger.server.error(`Error transforming order ${doc.id}:`, error);
@@ -159,7 +160,9 @@ async function fetchOrdersPage(page: number, limit: number, status?: string) {
     });
 
     logger.server.info(`Successfully processed ${orders.length} orders`);
-    logger.server.info('Sample order data:', JSON.stringify(orders[0], null, 2));
+    if (orders.length > 0) {
+      logger.server.info('Sample order data:', JSON.stringify(orders[0], null, 2));
+    }
 
     return {
       orders,
