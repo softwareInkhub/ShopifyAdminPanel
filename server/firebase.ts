@@ -1,15 +1,16 @@
-import { initializeApp, cert } from 'firebase-admin/app';
+import { initializeApp, cert, type ServiceAccount } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
+import { logger } from './logger';
 
-// Initialize Firebase with better error handling and performance monitoring
+// Initialize Firebase with better error handling
 function initializeFirebase() {
-  // Parse and validate service account
-  let serviceAccount;
   try {
     if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
       throw new Error('FIREBASE_SERVICE_ACCOUNT environment variable is not set');
     }
-    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+
+    // Parse and validate service account
+    const serviceAccount: ServiceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 
     // Validate required fields
     const requiredFields = ['project_id', 'private_key', 'client_email'];
@@ -19,79 +20,30 @@ function initializeFirebase() {
       throw new Error(`Missing required fields in service account: ${missingFields.join(', ')}`);
     }
 
-    console.log('Firebase service account validated successfully');
-  } catch (error) {
-    console.error('Failed to parse or validate FIREBASE_SERVICE_ACCOUNT:', error);
-    throw error;
-  }
+    logger.server.info('Firebase service account validated successfully');
 
-  // Initialize Firebase Admin
-  try {
+    // Initialize Firebase Admin
     initializeApp({
       credential: cert(serviceAccount)
     });
-    console.log('Firebase Admin initialized successfully');
-  } catch (error) {
-    console.error('Failed to initialize Firebase Admin:', error);
-    throw error;
-  }
+    logger.server.info('Firebase Admin initialized successfully');
 
-  // Initialize Firestore with settings
-  const db = getFirestore();
-  try {
+    // Initialize Firestore with settings
+    const db = getFirestore();
     db.settings({
       ignoreUndefinedProperties: true,
-      cacheSizeBytes: 1073741824, // 1GB cache size for better performance
-      minimumConsistencyLevel: 'eventual' // For better read performance
+      timestampsInSnapshots: true
     });
-    console.log('Firestore settings configured successfully');
+
+    logger.server.info('Firestore settings configured successfully');
     return db;
   } catch (error) {
-    console.error('Failed to configure Firestore settings:', error);
+    logger.server.error('Failed to initialize Firebase');
     throw error;
   }
 }
 
 // Initialize database connection
 const db = initializeFirebase();
-
-// Create composite indexes for better query performance
-async function createIndexes() {
-  try {
-    // Products collection indexes
-    const productsIndexRef = db.collection('products').doc('collection_indexes');
-    await productsIndexRef.set({
-      status_price: {
-        fields: ['status', 'price'],
-        queryScope: 'COLLECTION'
-      },
-      category_createdAt: {
-        fields: ['category', 'createdAt'],
-        queryScope: 'COLLECTION'
-      }
-    }, { merge: true });
-
-    // Orders collection indexes
-    const ordersIndexRef = db.collection('orders').doc('collection_indexes');
-    await ordersIndexRef.set({
-      status_date: {
-        fields: ['status', 'createdAt'],
-        queryScope: 'COLLECTION'
-      },
-      customerEmail_date: {
-        fields: ['customerEmail', 'createdAt'],
-        queryScope: 'COLLECTION'
-      }
-    }, { merge: true });
-
-    console.log('Firebase indexes created successfully');
-  } catch (error) {
-    console.error('Error creating indexes:', error);
-    // Don't throw here - indexes are important but not critical for operation
-  }
-}
-
-// Initialize indexes
-createIndexes().catch(console.error);
 
 export { db };

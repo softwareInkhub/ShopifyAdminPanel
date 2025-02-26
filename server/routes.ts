@@ -49,20 +49,39 @@ export async function registerRoutes(app: Express) {
         return res.json(JSON.parse(cachedData));
       }
 
-      // Query Firebase
-      const ordersRef = db.collection('orders');
-      const snapshot = await ordersRef.get();
+      // Query Firebase with proper filtering
+      let query = db.collection('orders');
 
-      let orders = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-
-      // Apply filters if provided
+      // Apply filters
       if (status && status !== 'all') {
-        orders = orders.filter(order => order.status === status);
+        query = query.where('status', '==', status);
       }
 
+      if (from) {
+        query = query.where('createdAt', '>=', new Date(from.toString()));
+      }
+
+      if (to) {
+        query = query.where('createdAt', '<=', new Date(to.toString()));
+      }
+
+      // Execute query
+      const snapshot = await query.get();
+
+      // Transform data
+      let orders = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          customerEmail: data.customerEmail,
+          totalPrice: data.totalPrice,
+          status: data.status,
+          createdAt: data.createdAt?.toDate?.() || data.createdAt,
+          currency: data.currency || 'USD'
+        };
+      });
+
+      // Apply text search if provided
       if (search) {
         const searchStr = search.toString().toLowerCase();
         orders = orders.filter(order =>
@@ -89,6 +108,7 @@ export async function registerRoutes(app: Express) {
       // Cache the results
       await cacheManager.set(cacheKey, JSON.stringify(result));
 
+      logger.server.info(`Retrieved ${orders.length} orders`);
       res.json(result);
     } catch (error) {
       logger.server.error('Orders fetch error');
