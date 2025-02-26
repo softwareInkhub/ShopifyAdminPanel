@@ -460,6 +460,141 @@ export async function registerRoutes(app: Express) {
     }
   });
 
+  // Add these endpoints for job management after existing routes
+  app.post("/api/jobs/sync-orders", async (req, res) => {
+    try {
+      const schema = z.object({
+        batchSize: z.number().min(1).max(1000).default(100),
+        startDate: z.string().optional(),
+        endDate: z.string().optional(),
+        includeMetafields: z.boolean().default(false)
+      });
+
+      const config = schema.parse(req.body);
+
+      // Create a new sync job
+      const job = await storage.createJob({
+        type: 'orders',
+        status: 'pending',
+        progress: 0,
+        createdAt: new Date(),
+        config: {
+          ...config,
+          resumeFromOrderId: null, // Will be updated during sync
+          lastSyncTime: new Date().toISOString()
+        }
+      });
+
+      // Add job to queue
+      await addJob('orders', job.id, job.config);
+
+      res.json({
+        status: 'success',
+        message: 'Order sync job created',
+        jobId: job.id,
+        config
+      });
+    } catch (error: any) {
+      console.error('Job creation error:', error);
+      res.status(500).json({ 
+        status: 'error',
+        message: error.message,
+        details: error.stack
+      });
+    }
+  });
+
+  // Job status endpoint
+  app.get("/api/jobs/sync-orders/:jobId", async (req, res) => {
+    try {
+      const jobId = parseInt(req.params.jobId);
+      const job = await storage.getJob(jobId);
+
+      if (!job) {
+        return res.status(404).json({ message: 'Job not found' });
+      }
+
+      // Get progress details
+      const [batches, checkpoint] = await Promise.all([
+        storage.listJobBatches(jobId),
+        db.collection('sync_checkpoints').doc('orders').get()
+      ]);
+
+      const checkpointData = checkpoint.data();
+
+      res.json({
+        ...job,
+        batches: batches.sort((a, b) => a.batchNumber - b.batchNumber),
+        checkpoint: checkpointData,
+        lastSync: checkpointData?.lastSyncTime
+      });
+    } catch (error: any) {
+      console.error('Job status fetch error:', error);
+      res.status(500).json({ 
+        status: 'error',
+        message: error.message,
+        details: error.stack
+      });
+    }
+  });
+
+  // List all sync jobs
+  app.get("/api/jobs/sync-orders", async (_req, res) => {
+    try {
+      const jobs = await storage.listJobs({ type: 'orders' });
+
+      // Get latest checkpoint
+      const checkpoint = await db.collection('sync_checkpoints').doc('orders').get();
+      const checkpointData = checkpoint.data();
+
+      res.json({
+        jobs: jobs.sort((a, b) => 
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        ),
+        lastSync: checkpointData?.lastSyncTime,
+        lastOrderId: checkpointData?.lastOrderId
+      });
+    } catch (error: any) {
+      console.error('Jobs list error:', error);
+      res.status(500).json({ 
+        status: 'error',
+        message: error.message,
+        details: error.stack 
+      });
+    }
+  });
+
+  // Cancel a running job
+  app.post("/api/jobs/sync-orders/:jobId/cancel", async (req, res) => {
+    try {
+      const jobId = parseInt(req.params.jobId);
+      const job = await storage.getJob(jobId);
+
+      if (!job) {
+        return res.status(404).json({ message: 'Job not found' });
+      }
+
+      if (job.status !== 'processing') {
+        return res.status(400).json({ message: 'Job is not running' });
+      }
+
+      // Update job status
+      await storage.updateJob(jobId, { status: 'cancelled' });
+
+      res.json({
+        status: 'success',
+        message: 'Job cancelled successfully'
+      });
+    } catch (error: any) {
+      console.error('Job cancellation error:', error);
+      res.status(500).json({ 
+        status: 'error',
+        message: error.message,
+        details: error.stack
+      });
+    }
+  });
+
   // Analytics endpoints
   app.get("/api/analytics", async (req, res) => {
     try {

@@ -8,6 +8,17 @@ import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 
 interface SyncMetrics {
   syncSpeed: number;
@@ -24,13 +35,189 @@ interface SyncError {
   type: string;
 }
 
-interface SyncHealthDashboardProps {
-  jobId?: string;
-}
-
 interface SyncCheckpoint {
   lastOrderId: string | null;
   lastSyncTime: number | null;
+}
+
+interface Job {
+  id: number;
+  status: string;
+  progress: number;
+  createdAt: string;
+  type: string;
+}
+
+function StartSyncJobForm() {
+  const { toast } = useToast();
+  const [batchSize, setBatchSize] = useState(100);
+  const [includeMetafields, setIncludeMetafields] = useState(false);
+
+  const startJob = async () => {
+    try {
+      const response = await fetch('/api/jobs/sync-orders', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          batchSize,
+          includeMetafields
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to start sync job');
+      }
+
+      const result = await response.json();
+      toast({
+        title: 'Sync Job Started',
+        description: `Job ID: ${result.jobId}`,
+      });
+    } catch (error) {
+      console.error('Start job error:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to start sync job',
+        variant: 'destructive'
+      });
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <Label htmlFor="batchSize">Batch Size</Label>
+        <Input
+          id="batchSize"
+          type="number"
+          min={1}
+          max={1000}
+          value={batchSize}
+          onChange={(e) => setBatchSize(parseInt(e.target.value))}
+        />
+      </div>
+      <div className="flex items-center space-x-2">
+        <Switch
+          id="includeMetafields"
+          checked={includeMetafields}
+          onCheckedChange={setIncludeMetafields}
+        />
+        <Label htmlFor="includeMetafields">Include Metafields</Label>
+      </div>
+      <Button onClick={startJob}>Start Sync Job</Button>
+    </div>
+  );
+}
+
+function SyncJobsList() {
+  const { toast } = useToast();
+
+  const { data: jobsData, isLoading } = useQuery({
+    queryKey: ['sync-jobs'],
+    queryFn: async () => {
+      const response = await fetch('/api/jobs/sync-orders');
+      if (!response.ok) {
+        throw new Error('Failed to fetch sync jobs');
+      }
+      return response.json();
+    },
+    refetchInterval: 5000 // Refresh every 5 seconds
+  });
+
+  const cancelJob = async (jobId: number) => {
+    try {
+      const response = await fetch(`/api/jobs/sync-orders/${jobId}/cancel`, {
+        method: 'POST'
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to cancel job');
+      }
+
+      toast({
+        title: 'Job Cancelled',
+        description: 'Sync job cancelled successfully'
+      });
+    } catch (error) {
+      console.error('Cancel job error:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to cancel job',
+        variant: 'destructive'
+      });
+    }
+  };
+
+  if (isLoading) {
+    return <div>Loading jobs...</div>;
+  }
+
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Job ID</TableHead>
+          <TableHead>Status</TableHead>
+          <TableHead>Progress</TableHead>
+          <TableHead>Created At</TableHead>
+          <TableHead>Actions</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {jobsData?.jobs?.map((job: Job) => (
+          <TableRow key={job.id}>
+            <TableCell>{job.id}</TableCell>
+            <TableCell>{job.status}</TableCell>
+            <TableCell>{job.progress}%</TableCell>
+            <TableCell>
+              {new Date(job.createdAt).toLocaleString()}
+            </TableCell>
+            <TableCell>
+              {job.status === 'processing' && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => cancelJob(job.id)}
+                >
+                  Cancel
+                </Button>
+              )}
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
+
+function SyncJobsManager() {
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Start New Sync Job</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <StartSyncJobForm />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Recent Sync Jobs</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <SyncJobsList />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+interface SyncHealthDashboardProps {
+  jobId?: string;
 }
 
 export default function SyncHealthDashboard({ jobId }: SyncHealthDashboardProps) {
@@ -187,6 +374,7 @@ export default function SyncHealthDashboard({ jobId }: SyncHealthDashboardProps)
 
   return (
     <div className="space-y-6">
+      <SyncJobsManager/>
       {!wsConnected && (
         <Alert variant="destructive">
           <AlertTitle>Connection Lost</AlertTitle>
