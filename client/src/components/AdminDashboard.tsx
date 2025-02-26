@@ -40,6 +40,22 @@ const defaultWidgets: DashboardWidget[] = [
     enabled: true
   },
   {
+    id: 'performance',
+    title: 'Performance Analytics',
+    description: 'Detailed performance metrics and trends',
+    component: <PerformanceMetricsSummary />,
+    detailComponent: <PerformanceMetrics />,
+    enabled: true
+  },
+  {
+    id: 'system-health',
+    title: 'System Health',
+    description: 'Real-time system monitoring and alerts',
+    component: <SystemHealthSummary />,
+    detailComponent: <SystemHealth />,
+    enabled: true
+  },
+  {
     id: 'orders',
     title: 'Recent Orders',
     description: 'Latest order activity and statistics',
@@ -80,8 +96,8 @@ export default function AdminDashboard() {
   };
 
   const toggleWidget = (widgetId: string) => {
-    setWidgets(prev => 
-      prev.map(w => 
+    setWidgets(prev =>
+      prev.map(w =>
         w.id === widgetId ? { ...w, enabled: !w.enabled } : w
       )
     );
@@ -136,9 +152,9 @@ export default function AdminDashboard() {
                     className="space-y-3"
                   >
                     {widgets.map((widget, index) => (
-                      <Draggable 
-                        key={widget.id} 
-                        draggableId={widget.id} 
+                      <Draggable
+                        key={widget.id}
+                        draggableId={widget.id}
                         index={index}
                       >
                         {(provided) => (
@@ -171,14 +187,14 @@ export default function AdminDashboard() {
         </Card>
       ) : (
         <div className={`grid gap-6 ${
-          layout === 'grid' 
-            ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4' 
+          layout === 'grid'
+            ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4'
             : 'grid-cols-1'
         }`}>
           {widgets
             .filter(w => w.enabled)
             .map(widget => (
-              <Card 
+              <Card
                 key={widget.id}
                 className="hover:shadow-lg transition-shadow duration-200 cursor-pointer h-[200px]"
                 onClick={() => setSelectedWidget(widget.id)}
@@ -396,7 +412,7 @@ function ProductsDetailView() {
     }
   });
 
-  const totalValue = products?.reduce((sum: number, product: any) => 
+  const totalValue = products?.reduce((sum: number, product: any) =>
     sum + (parseFloat(product.price) || 0), 0
   ) || 0;
 
@@ -527,3 +543,65 @@ function CacheDetailView() {
     </div>
   );
 }
+
+function PerformanceMetricsSummary() {
+  const { data: metrics } = useQuery({
+    queryKey: ['performance-metrics-summary'],
+    queryFn: async () => {
+      const response = await fetch('/api/analytics/performance/summary');
+      return response.json();
+    },
+    refetchInterval: 30000
+  });
+
+  return (
+    <div className="grid grid-cols-2 gap-4">
+      <div>
+        <p className="text-sm font-medium">Avg Response</p>
+        <p className="text-2xl">{metrics?.avgResponse || 0}ms</p>
+      </div>
+      <div>
+        <p className="text-sm font-medium">Error Rate</p>
+        <p className="text-2xl">{metrics?.errorRate || 0}%</p>
+      </div>
+    </div>
+  );
+}
+
+function SystemHealthSummary() {
+  const { data: health } = useQuery({
+    queryKey: ['system-health-summary'],
+    queryFn: async () => {
+      const response = await fetch('/api/monitoring/health/summary');
+      return response.json();
+    },
+    refetchInterval: 30000
+  });
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'healthy': return 'text-green-500';
+      case 'warning': return 'text-yellow-500';
+      case 'critical': return 'text-red-500';
+      default: return 'text-gray-500';
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex justify-between items-center">
+        <p className="text-sm font-medium">System Status</p>
+        <p className={`text-lg font-semibold ${getStatusColor(health?.status || 'unknown')}`}>
+          {(health?.status || 'Unknown').toUpperCase()}
+        </p>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        {health?.activeAlerts || 0} active alerts
+      </p>
+    </div>
+  );
+}
+
+// Placeholder components - Replace with actual implementations
+function PerformanceMetrics() { return <div>Performance Metrics Detail</div>; }
+function SystemHealth() { return <div>System Health Detail</div>; }
