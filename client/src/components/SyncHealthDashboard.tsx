@@ -1,4 +1,3 @@
-```typescript
 import React, { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
@@ -35,7 +34,7 @@ export default function SyncHealthDashboard({ jobId }: SyncHealthDashboardProps)
   const { data: syncStatus } = useQuery({
     queryKey: ['syncStatus', jobId],
     queryFn: async () => {
-      const response = await fetch(`/api/sync/status${jobId ? `?jobId=${jobId}` : ''}`);
+      const response = await fetch(jobId ? `/api/sync/status?jobId=${jobId}` : '/api/sync/status');
       return response.json();
     },
     refetchInterval: 5000 // Poll every 5 seconds
@@ -45,7 +44,7 @@ export default function SyncHealthDashboard({ jobId }: SyncHealthDashboardProps)
   const { data: syncMetrics } = useQuery({
     queryKey: ['syncMetrics', jobId],
     queryFn: async () => {
-      const response = await fetch(`/api/sync/metrics${jobId ? `?jobId=${jobId}` : ''}`);
+      const response = await fetch(jobId ? `/api/sync/metrics?jobId=${jobId}` : '/api/sync/metrics');
       return response.json();
     },
     refetchInterval: 10000 // Poll every 10 seconds
@@ -112,7 +111,7 @@ export default function SyncHealthDashboard({ jobId }: SyncHealthDashboardProps)
               </div>
               <Progress value={syncStatus?.progress || 0} />
             </div>
-            
+
             <div className="grid grid-cols-4 gap-4">
               <div>
                 <p className="text-sm font-medium">Items Processed</p>
@@ -192,4 +191,3 @@ export default function SyncHealthDashboard({ jobId }: SyncHealthDashboardProps)
     </div>
   );
 }
-```
