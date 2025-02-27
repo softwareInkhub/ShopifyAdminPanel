@@ -4,8 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Database, Plus, Trash2 } from "lucide-react";
+import { Database, Plus, Trash2, Loader2 } from "lucide-react";
 import { useDynamoDB } from "@/hooks/aws/useDynamoDB";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export default function DynamoDBPage() {
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
@@ -24,8 +25,17 @@ export default function DynamoDBPage() {
   // Get items for selected table
   const {
     data: items = [],
-    isLoading: itemsLoading
+    isLoading: itemsLoading,
+    error: itemsError
   } = queryTable(selectedTable || "");
+
+  // Function to format DynamoDB attributes for display
+  const formatAttribute = (value: any): string => {
+    if (typeof value === 'object' && value !== null) {
+      return JSON.stringify(value, null, 2);
+    }
+    return String(value);
+  };
 
   return (
     <div className="p-8 space-y-6">
@@ -49,33 +59,46 @@ export default function DynamoDBPage() {
             <CardTitle>Tables</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2">
-              {tables.map((table) => (
-                <div
-                  key={table.TableName}
-                  className={`
-                    flex items-center justify-between p-3 rounded-lg cursor-pointer
-                    ${selectedTable === table.TableName ? 'bg-primary/10' : 'hover:bg-muted'}
-                  `}
-                  onClick={() => setSelectedTable(table.TableName)}
-                >
-                  <div className="flex items-center">
-                    <Database className="mr-2 h-4 w-4" />
-                    <span>{table.TableName}</span>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deleteTable.mutate(table.TableName);
-                    }}
+            {tablesLoading ? (
+              <div className="space-y-2">
+                {[1, 2, 3].map((i) => (
+                  <Skeleton key={i} className="h-12 w-full" />
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {tables.map((table) => (
+                  <div
+                    key={table.TableName}
+                    className={`
+                      flex items-center justify-between p-3 rounded-lg cursor-pointer
+                      ${selectedTable === table.TableName ? 'bg-primary/10' : 'hover:bg-muted'}
+                    `}
+                    onClick={() => setSelectedTable(table.TableName)}
                   >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              ))}
-            </div>
+                    <div className="flex items-center">
+                      <Database className="mr-2 h-4 w-4" />
+                      <div>
+                        <div>{table.TableName}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {table.ItemCount} items • {table.TableStatus}
+                        </div>
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteTable.mutate(table.TableName);
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -88,28 +111,48 @@ export default function DynamoDBPage() {
           </CardHeader>
           <CardContent>
             {selectedTable ? (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Partition Key</TableHead>
-                    <TableHead>Sort Key</TableHead>
-                    <TableHead>Attributes</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {items.map((item, index) => (
-                    <TableRow key={index}>
-                      <TableCell>{JSON.stringify(item)}</TableCell>
-                      <TableCell>
-                        <Button variant="ghost" size="sm">
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
+              itemsLoading ? (
+                <div className="space-y-4">
+                  {[1, 2, 3].map((i) => (
+                    <Skeleton key={i} className="h-12 w-full" />
                   ))}
-                </TableBody>
-              </Table>
+                </div>
+              ) : itemsError ? (
+                <div className="text-center py-8 text-destructive">
+                  Error loading items. Please try again.
+                </div>
+              ) : items.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  No items found in this table
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Item Data</TableHead>
+                        <TableHead className="w-24">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {items.map((item, index) => (
+                        <TableRow key={index}>
+                          <TableCell>
+                            <pre className="whitespace-pre-wrap text-sm">
+                              {formatAttribute(item)}
+                            </pre>
+                          </TableCell>
+                          <TableCell>
+                            <Button variant="ghost" size="sm">
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )
             ) : (
               <div className="text-center py-8 text-muted-foreground">
                 Select a table to view its contents
@@ -154,6 +197,9 @@ export default function DynamoDBPage() {
               }}
               disabled={!newTableName.trim() || createTable.isPending}
             >
+              {createTable.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : null}
               Create Table
             </Button>
           </div>

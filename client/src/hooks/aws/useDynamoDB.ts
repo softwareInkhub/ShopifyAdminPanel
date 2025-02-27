@@ -24,19 +24,16 @@ export function useDynamoDB() {
   });
 
   // Query table items with real-time updates
-  const queryTable = (tableName: string, queryParams?: Record<string, any>) => {
+  const queryTable = (tableName: string) => {
     return useQuery({
-      queryKey: ['/api/aws/dynamodb/query', tableName, queryParams],
+      queryKey: ['/api/aws/dynamodb/tables', tableName, 'items'],
       queryFn: async () => {
-        const res = await fetch(`/api/aws/dynamodb/tables/${tableName}/query`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(queryParams)
-        });
+        if (!tableName) return [];
+        const res = await fetch(`/api/aws/dynamodb/tables/${tableName}/items`);
         if (!res.ok) throw new Error('Failed to query table');
         return res.json();
       },
-      refetchInterval: 15000, // More frequent updates for table data
+      refetchInterval: 15000,
       refetchOnWindowFocus: true,
       staleTime: 5000,
       enabled: !!tableName
@@ -99,7 +96,7 @@ export function useDynamoDB() {
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({
-        queryKey: ['/api/aws/dynamodb/query', variables.tableName]
+        queryKey: ['/api/aws/dynamodb/tables', variables.tableName, 'items']
       });
       toast({ title: "Item added successfully" });
     },
