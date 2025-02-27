@@ -7,14 +7,14 @@ import { AWSLayout } from "@/components/layouts/AWSLayout";
 import { 
   Server, 
   Database, 
-  Function as FunctionIcon, 
+  Box as FunctionIcon, 
   HardDrive,
   Bell,
   Mail,
   Cloud,
   Terminal
 } from "lucide-react";
-import { SiAmazonecs } from "react-icons/si";
+import { SiAmazon } from "react-icons/si";
 
 interface ServiceCard {
   title: string;
@@ -69,7 +69,7 @@ const services: ServiceCard[] = [
   {
     title: "ECS Clusters",
     description: "Container orchestration",
-    icon: <SiAmazonecs className="h-6 w-6" />,
+    icon: <SiAmazon className="h-6 w-6" />,
     route: "/aws/ecs"
   },
   {
@@ -80,10 +80,15 @@ const services: ServiceCard[] = [
   }
 ];
 
+interface AWSUser {
+  UserName: string;
+  Arn: string;
+}
+
 export default function AWSDashboard() {
   const { toast } = useToast();
 
-  const { data: userInfo, error } = useQuery({
+  const { data: userInfo, error } = useQuery<AWSUser>({
     queryKey: ['/api/aws/current-user'],
     retry: false
   });

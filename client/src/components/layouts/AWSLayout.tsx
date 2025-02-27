@@ -1,5 +1,5 @@
 import { useAWS } from "@/contexts/AWSContext";
-import { Navigate } from "wouter";
+import { useLocation } from "wouter";
 import { Loader2 } from "lucide-react";
 
 interface AWSLayoutProps {
@@ -8,6 +8,7 @@ interface AWSLayoutProps {
 
 export function AWSLayout({ children }: AWSLayoutProps) {
   const { isAuthenticated, isLoading } = useAWS();
+  const [_, setLocation] = useLocation();
 
   if (isLoading) {
     return (
@@ -18,7 +19,8 @@ export function AWSLayout({ children }: AWSLayoutProps) {
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/aws/login" />;
+    setLocation("/aws/login");
+    return null;
   }
 
   return (

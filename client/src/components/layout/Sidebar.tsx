@@ -1,6 +1,6 @@
 import { Link, useLocation } from 'wouter';
 import { LayoutDashboard, Package, ShoppingCart, Activity, BarChart, Cloud } from 'lucide-react';
-import { SiAmazonaws } from 'react-icons/si';
+import { SiAmazon } from 'react-icons/si';
 import { useAWS } from '@/contexts/AWSContext';
 
 export default function Sidebar() {
@@ -17,9 +17,9 @@ export default function Sidebar() {
 
   // Add AWS section if authenticated
   const awsLinks = isAuthenticated ? [
-    { href: '/aws/dashboard', label: 'AWS Dashboard', icon: SiAmazonaws },
+    { href: '/aws/dashboard', label: 'AWS Dashboard', icon: SiAmazon },
   ] : [
-    { href: '/aws/login', label: 'AWS Login', icon: SiAmazonaws }
+    { href: '/aws/login', label: 'AWS Login', icon: SiAmazon }
   ];
 
   return (

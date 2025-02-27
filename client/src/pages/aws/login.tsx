@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "wouter";
+import { useLocation } from "wouter";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { SiAmazonaws } from "react-icons/si";
+import { SiAmazon } from "react-icons/si";
 import { useAWS } from "@/contexts/AWSContext";
 
 const formSchema = z.object({
@@ -22,7 +22,7 @@ export default function AWSLogin() {
   const [isLoading, setIsLoading] = useState(false);
   const { login } = useAWS();
   const { toast } = useToast();
-  const navigate = useNavigate();
+  const [_, setLocation] = useLocation();
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -37,7 +37,7 @@ export default function AWSLogin() {
       setIsLoading(true);
       await login(data.accessKeyId, data.secretAccessKey);
       toast({ title: "Successfully logged in to AWS" });
-      navigate("/aws/dashboard");
+      setLocation("/aws/dashboard");
     } catch (error) {
       toast({
         title: "Failed to login",
@@ -54,7 +54,7 @@ export default function AWSLogin() {
       <Card>
         <CardHeader className="space-y-1">
           <div className="flex items-center justify-center mb-4">
-            <SiAmazonaws className="h-10 w-10 text-orange-500" />
+            <SiAmazon className="h-10 w-10 text-orange-500" />
           </div>
           <CardTitle className="text-2xl text-center">AWS Login</CardTitle>
           <CardDescription className="text-center">
