@@ -10,6 +10,8 @@ import ProductDetail from "@/pages/product-detail";
 import Jobs from "@/pages/jobs";
 import Analytics from "@/pages/analytics";
 import SchemaManager from "@/pages/schema-manager";
+import S3Page from "@/pages/aws/s3";
+import DynamoDBPage from "@/pages/aws/dynamodb";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -25,6 +27,9 @@ function Router() {
           <Route path="/jobs" component={Jobs} />
           <Route path="/analytics" component={Analytics} />
           <Route path="/schemas" component={SchemaManager} />
+          {/* AWS Routes */}
+          <Route path="/aws/s3" component={S3Page} />
+          <Route path="/aws/dynamodb" component={DynamoDBPage} />
           <Route component={NotFound} />
         </Switch>
       </main>
