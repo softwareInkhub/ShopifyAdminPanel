@@ -3,22 +3,6 @@ import { getDb } from "./firebase";
 import { logger } from './logger';
 import { s3Service } from './aws/services/s3';
 import { dynamoDBService } from './aws/services/dynamodb';
-import { lambdaService } from './aws/services/lambda'; // Added import
-import { stepFunctionsService } from './aws/services/stepfunctions'; // Added import
-import { iamService } from './aws/services/iam';
-const shopifyOrdersLambda = `// Lambda function code here`; // Placeholder for Lambda code
-const stepFunctionDefinition = {
-  // Step Function definition here
-  "StartAt": "ImportShopifyOrders",
-  "States": {
-    "ImportShopifyOrders": {
-      "Type": "Task",
-      "Resource": "#{LambdaFunctionArn}",
-      "End": true
-    }
-  }
-};
-
 
 // Cache related code at the top
 class CacheManager {
@@ -490,114 +474,6 @@ export async function registerRoutes(app: Express) {
       logger.server.error('Error adding item to DynamoDB');
       res.status(500).json({
         message: 'Failed to add item',
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
-    }
-  });
-
-  // Add after existing DynamoDB routes
-  // Step Functions and Lambda Routes for Shopify Orders Import
-  app.post("/api/aws/shopify/import-setup", async (req, res) => {
-    try {
-      // Create IAM roles first
-      const lambdaRole = await iamService.createLambdaRole();
-      const stepFunctionsRole = await iamService.createStepFunctionsRole();
-
-      // Wait for roles to propagate (AWS IAM has eventual consistency)
-      await new Promise(resolve => setTimeout(resolve, 10000));
-
-      // Create DynamoDB table for orders if it doesn't exist
-      await dynamoDBService.createTable({
-        TableName: 'shopify_orders',
-        AttributeDefinitions: [
-          { AttributeName: 'id', AttributeType: 'S' }
-        ],
-        KeySchema: [
-          { AttributeName: 'id', KeyType: 'HASH' }
-        ],
-        ProvisionedThroughput: {
-          ReadCapacityUnits: 5,
-          WriteCapacityUnits: 5
-        }
-      });
-
-      // Create Lambda function
-      const lambdaResponse = await lambdaService.createFunction({
-        FunctionName: 'shopify-orders-import',
-        Runtime: 'nodejs18.x',
-        Role: lambdaRole.Arn,
-        Handler: 'index.handler',
-        Code: {
-          ZipFile: Buffer.from(shopifyOrdersLambda)
-        },
-        Environment: {
-          Variables: {
-            SHOPIFY_ACCESS_TOKEN: process.env.SHOPIFY_ACCESS_TOKEN!,
-            SHOPIFY_SHOP_URL: process.env.SHOPIFY_SHOP_URL!
-          }
-        },
-        Timeout: 300,
-        MemorySize: 256
-      });
-
-      // Create Step Function state machine
-      const stepFunctionResponse = await stepFunctionsService.createStateMachine({
-        name: 'shopify-orders-import',
-        definition: JSON.stringify(stepFunctionDefinition).replace(
-          '#{LambdaFunctionArn}',
-          lambdaResponse.FunctionArn!
-        ),
-        roleArn: stepFunctionsRole.Arn,
-        type: 'STANDARD'
-      });
-
-      res.json({
-        message: 'Import workflow setup completed',
-        lambdaArn: lambdaResponse.FunctionArn,
-        stateMachineArn: stepFunctionResponse.stateMachineArn,
-        lambdaRoleArn: lambdaRole.Arn,
-        stepFunctionsRoleArn: stepFunctionsRole.Arn
-      });
-    } catch (error) {
-      logger.server.error('Error setting up import workflow');
-      res.status(500).json({
-        message: 'Failed to setup import workflow',
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
-    }
-  });
-
-  app.post("/api/aws/shopify/start-import", async (req, res) => {
-    try {
-      const response = await stepFunctionsService.startExecution({
-        stateMachineArn: req.body.stateMachineArn,
-        input: JSON.stringify({})
-      });
-
-      res.json({
-        message: 'Import started successfully',
-        executionArn: response.executionArn
-      });
-    } catch (error) {
-      logger.server.error('Error starting import');
-      res.status(500).json({
-        message: 'Failed to start import',
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
-    }
-  });
-
-  app.get("/api/aws/shopify/import-status/:executionArn", async (req, res) => {
-    try {
-      const response = await stepFunctionsService.getExecutionStatus(
-        req.params.executionArn
-      );
-
-      res.json(response);
-    } catch (error) {
-      logger.server.error('Error getting import status');
-      res.status(500).json({
-        message: 'Failed to get import status',
         error: error instanceof Error ? error.message : 'Unknown error'
       });
     }
