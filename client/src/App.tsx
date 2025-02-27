@@ -12,6 +12,7 @@ import Analytics from "@/pages/analytics";
 import SchemaManager from "@/pages/schema-manager";
 import S3Page from "@/pages/aws/s3";
 import DynamoDBPage from "@/pages/aws/dynamodb";
+import LambdaPage from "@/pages/aws/lambda";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -30,6 +31,7 @@ function Router() {
           {/* AWS Routes */}
           <Route path="/aws/s3" component={S3Page} />
           <Route path="/aws/dynamodb" component={DynamoDBPage} />
+          <Route path="/aws/lambda" component={LambdaPage} />
           <Route component={NotFound} />
         </Switch>
       </main>

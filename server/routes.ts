@@ -3,6 +3,7 @@ import { getDb } from "./firebase";
 import { logger } from './logger';
 import { s3Service } from './aws/services/s3';
 import { dynamoDBService } from './aws/services/dynamodb';
+import { lambdaService } from './aws/services/lambda'; // Import lambda service
 
 // Cache related code at the top
 class CacheManager {
@@ -474,6 +475,76 @@ export async function registerRoutes(app: Express) {
       logger.server.error('Error adding item to DynamoDB');
       res.status(500).json({
         message: 'Failed to add item',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
+  // Add these routes after the existing DynamoDB routes
+  // Lambda Routes
+  app.get("/api/aws/lambda/functions", async (req, res) => {
+    try {
+      const functions = await lambdaService.listFunctions();
+      res.json(functions);
+    } catch (error) {
+      logger.server.error('Error listing Lambda functions');
+      res.status(500).json({
+        message: 'Failed to list functions',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
+  app.get("/api/aws/lambda/functions/:functionName", async (req, res) => {
+    try {
+      const { functionName } = req.params;
+      const response = await lambdaService.getFunction(functionName);
+      res.json(response);
+    } catch (error) {
+      logger.server.error('Error getting Lambda function');
+      res.status(500).json({
+        message: 'Failed to get function',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
+  app.post("/api/aws/lambda/functions", async (req, res) => {
+    try {
+      const response = await lambdaService.createFunction(req.body);
+      res.json(response);
+    } catch (error) {
+      logger.server.error('Error creating Lambda function');
+      res.status(500).json({
+        message: 'Failed to create function',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
+  app.delete("/api/aws/lambda/functions/:functionName", async (req, res) => {
+    try {
+      const { functionName } = req.params;
+      await lambdaService.deleteFunction(functionName);
+      res.json({ message: 'Function deleted successfully' });
+    } catch (error) {
+      logger.server.error('Error deleting Lambda function');
+      res.status(500).json({
+        message: 'Failed to delete function',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
+  app.post("/api/aws/lambda/functions/:functionName/invoke", async (req, res) => {
+    try {
+      const { functionName } = req.params;
+      const response = await lambdaService.invokeFunction(functionName, req.body);
+      res.json(response);
+    } catch (error) {
+      logger.server.error('Error invoking Lambda function');
+      res.status(500).json({
+        message: 'Failed to invoke function',
         error: error instanceof Error ? error.message : 'Unknown error'
       });
     }
