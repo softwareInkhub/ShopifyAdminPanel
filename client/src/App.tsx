@@ -11,8 +11,6 @@ import Jobs from "@/pages/jobs";
 import Analytics from "@/pages/analytics";
 import SchemaManager from "@/pages/schema-manager";
 import NotFound from "@/pages/not-found";
-import { AWSProvider } from "@/contexts/AWSContext";
-import AWSDashboard from "@/pages/aws/dashboard";
 
 function Router() {
   return (
@@ -27,7 +25,6 @@ function Router() {
           <Route path="/jobs" component={Jobs} />
           <Route path="/analytics" component={Analytics} />
           <Route path="/schemas" component={SchemaManager} />
-          <Route path="/aws/dashboard" component={AWSDashboard} />
           <Route component={NotFound} />
         </Switch>
       </main>
@@ -38,10 +35,8 @@ function Router() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <AWSProvider>
-        <Router />
-        <Toaster />
-      </AWSProvider>
+      <Router />
+      <Toaster />
     </QueryClientProvider>
   );
 }
