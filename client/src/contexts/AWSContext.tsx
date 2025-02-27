@@ -21,10 +21,18 @@ export function AWSProvider({ children }: { children: React.ReactNode }) {
     queryKey: ['aws-current-user'],
     queryFn: async () => {
       const response = await fetch('/api/aws/current-user');
-      if (!response.ok) throw new Error('Failed to fetch AWS user');
+      if (!response.ok) {
+        if (response.status === 401) {
+          // Clear authenticated state on unauthorized
+          setIsAuthenticated(false);
+          throw new Error('AWS session expired');
+        }
+        throw new Error('Failed to fetch AWS user');
+      }
       return response.json();
     },
     enabled: isAuthenticated,
+    retry: false
   });
 
   const login = async (accessKeyId: string, secretAccessKey: string) => {
@@ -35,7 +43,10 @@ export function AWSProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({ accessKeyId, secretAccessKey }),
       });
 
-      if (!response.ok) throw new Error('AWS authentication failed');
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'AWS authentication failed');
+      }
 
       setIsAuthenticated(true);
       toast({
@@ -43,6 +54,7 @@ export function AWSProvider({ children }: { children: React.ReactNode }) {
         description: 'Successfully authenticated with AWS',
       });
     } catch (error) {
+      setIsAuthenticated(false);
       toast({
         title: 'AWS Login Failed',
         description: error instanceof Error ? error.message : 'Failed to authenticate with AWS',
@@ -52,8 +64,17 @@ export function AWSProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const logout = () => {
-    setIsAuthenticated(false);
+  const logout = async () => {
+    try {
+      await fetch('/api/aws/logout', { method: 'POST' });
+      setIsAuthenticated(false);
+    } catch (error) {
+      toast({
+        title: 'Logout Failed',
+        description: 'Failed to logout from AWS',
+        variant: 'destructive',
+      });
+    }
   };
 
   return (
