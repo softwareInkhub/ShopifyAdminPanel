@@ -11,6 +11,16 @@
     "db:push": "drizzle-kit push"
   },
   "dependencies": {
+    "@aws-sdk/client-cloudformation": "^3.750.0",
+    "@aws-sdk/client-dynamodb": "^3.751.0",
+    "@aws-sdk/client-ec2": "^3.757.0",
+    "@aws-sdk/client-ecs": "^3.752.0",
+    "@aws-sdk/client-lambda": "^3.750.0",
+    "@aws-sdk/client-s3": "^3.750.0",
+    "@aws-sdk/client-sns": "^3.750.0",
+    "@aws-sdk/client-sqs": "^3.750.0",
+    "@aws-sdk/types": "^3.734.0",
+    "@aws-sdk/util-dynamodb": "^3.751.0",
     "@firebase/auth": "^1.9.0",
     "@hello-pangea/dnd": "^18.0.1",
     "@hookform/resolvers": "^3.9.1",

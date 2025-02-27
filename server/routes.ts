@@ -1,6 +1,8 @@
 import type { Express } from "express";
 import { getDb } from "./firebase";
 import { logger } from './logger';
+import { s3Service } from './aws/services/s3';
+import { dynamoDBService } from './aws/services/dynamodb';
 
 // Cache related code at the top
 class CacheManager {
@@ -336,6 +338,62 @@ export async function registerRoutes(app: Express) {
       logger.server.error('Products fetch error:', error);
       res.status(500).json({
         message: 'Failed to fetch products',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
+  // AWS S3 Routes
+  app.get("/api/aws/s3/buckets", async (req, res) => {
+    try {
+      const response = await s3Service.listBuckets();
+      res.json(response.Buckets || []);
+    } catch (error) {
+      logger.server.error('Error listing S3 buckets:', error);
+      res.status(500).json({
+        message: 'Failed to list buckets',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
+  app.get("/api/aws/s3/buckets/:bucketName/objects", async (req, res) => {
+    try {
+      const { bucketName } = req.params;
+      const response = await s3Service.listObjects(bucketName);
+      res.json(response.Contents || []);
+    } catch (error) {
+      logger.server.error('Error listing S3 objects:', error);
+      res.status(500).json({
+        message: 'Failed to list objects',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
+  app.post("/api/aws/s3/buckets", async (req, res) => {
+    try {
+      const { name } = req.body;
+      await s3Service.createBucket(name);
+      res.json({ message: 'Bucket created successfully' });
+    } catch (error) {
+      logger.server.error('Error creating S3 bucket:', error);
+      res.status(500).json({
+        message: 'Failed to create bucket',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
+  app.delete("/api/aws/s3/buckets/:bucketName", async (req, res) => {
+    try {
+      const { bucketName } = req.params;
+      await s3Service.deleteBucket(bucketName);
+      res.json({ message: 'Bucket deleted successfully' });
+    } catch (error) {
+      logger.server.error('Error deleting S3 bucket:', error);
+      res.status(500).json({
+        message: 'Failed to delete bucket',
         error: error instanceof Error ? error.message : 'Unknown error'
       });
     }
