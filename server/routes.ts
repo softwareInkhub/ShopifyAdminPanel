@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { getDb } from "./firebase";
 import { logger } from './logger';
+import { awsRoutes } from './aws/routes';
 
 // Cache related code at the top
 class CacheManager {
@@ -341,5 +342,7 @@ export async function registerRoutes(app: Express) {
     }
   });
 
+  // AWS routes
+  app.use('/api/aws', awsRoutes);
   return app;
 }
