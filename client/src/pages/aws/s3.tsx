@@ -1,98 +1,30 @@
 import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { useToast } from "@/hooks/use-toast";
 import { HardDrive, Upload, Trash2, Download, FolderOpen } from "lucide-react";
-
-interface S3Bucket {
-  Name: string;
-  CreationDate: Date;
-}
-
-interface S3Object {
-  Key: string;
-  Size: number;
-  LastModified: Date;
-}
+import { useS3 } from "@/hooks/aws/useS3";
 
 export default function S3Page() {
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
   const [selectedBucket, setSelectedBucket] = useState<string | null>(null);
   const [isCreateBucketOpen, setIsCreateBucketOpen] = useState(false);
   const [newBucketName, setNewBucketName] = useState("");
 
-  // Fetch buckets
-  const { data: buckets = [], isLoading: bucketsLoading } = useQuery<S3Bucket[]>({
-    queryKey: ['/api/aws/s3/buckets'],
-    queryFn: async () => {
-      const res = await fetch('/api/aws/s3/buckets');
-      if (!res.ok) throw new Error('Failed to fetch buckets');
-      return res.json();
-    }
-  });
+  const {
+    buckets,
+    bucketsLoading,
+    listObjects,
+    createBucket,
+    deleteBucket
+  } = useS3();
 
-  // Fetch objects for selected bucket
-  const { data: objects = [], isLoading: objectsLoading } = useQuery<S3Object[]>({
-    queryKey: ['/api/aws/s3/objects', selectedBucket],
-    queryFn: async () => {
-      if (!selectedBucket) return [];
-      const res = await fetch(`/api/aws/s3/buckets/${selectedBucket}/objects`);
-      if (!res.ok) throw new Error('Failed to fetch objects');
-      return res.json();
-    },
-    enabled: !!selectedBucket
-  });
-
-  // Create bucket mutation
-  const createBucketMutation = useMutation({
-    mutationFn: async (name: string) => {
-      const res = await fetch('/api/aws/s3/buckets', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name })
-      });
-      if (!res.ok) throw new Error('Failed to create bucket');
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/aws/s3/buckets'] });
-      setIsCreateBucketOpen(false);
-      setNewBucketName("");
-      toast({ title: "Bucket created successfully" });
-    },
-    onError: () => {
-      toast({
-        title: "Failed to create bucket",
-        variant: "destructive"
-      });
-    }
-  });
-
-  // Delete bucket mutation
-  const deleteBucketMutation = useMutation({
-    mutationFn: async (name: string) => {
-      const res = await fetch(`/api/aws/s3/buckets/${name}`, {
-        method: 'DELETE'
-      });
-      if (!res.ok) throw new Error('Failed to delete bucket');
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/aws/s3/buckets'] });
-      if (selectedBucket) setSelectedBucket(null);
-      toast({ title: "Bucket deleted successfully" });
-    },
-    onError: () => {
-      toast({
-        title: "Failed to delete bucket",
-        variant: "destructive"
-      });
-    }
-  });
+  // Get objects for selected bucket
+  const {
+    data: objects = [],
+    isLoading: objectsLoading
+  } = listObjects(selectedBucket || "");
 
   // Format bytes to human readable size
   const formatBytes = (bytes: number) => {
@@ -144,7 +76,7 @@ export default function S3Page() {
                     size="sm"
                     onClick={(e) => {
                       e.stopPropagation();
-                      deleteBucketMutation.mutate(bucket.Name);
+                      deleteBucket.mutate(bucket.Name);
                     }}
                   >
                     <Trash2 className="h-4 w-4" />
@@ -220,8 +152,12 @@ export default function S3Page() {
               />
             </div>
             <Button
-              onClick={() => createBucketMutation.mutate(newBucketName)}
-              disabled={!newBucketName.trim() || createBucketMutation.isPending}
+              onClick={() => {
+                createBucket.mutate(newBucketName);
+                setIsCreateBucketOpen(false);
+                setNewBucketName("");
+              }}
+              disabled={!newBucketName.trim() || createBucket.isPending}
             >
               Create Bucket
             </Button>
