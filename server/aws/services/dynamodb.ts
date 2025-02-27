@@ -9,13 +9,14 @@ import {
   CreateTableCommand,
   DeleteTableCommand,
   ListTablesCommand,
+  DescribeTableCommand,
   DynamoDBClientConfig,
   AttributeValue
 } from "@aws-sdk/client-dynamodb";
 import { logger } from '../../logger';
 
 export class DynamoDBService {
-  private client: DynamoDBClient;
+  public client: DynamoDBClient;
 
   constructor(config?: DynamoDBClientConfig) {
     this.client = new DynamoDBClient(config || {
@@ -34,6 +35,19 @@ export class DynamoDBService {
       return response;
     } catch (error) {
       logger.server.error('Error listing DynamoDB tables');
+      throw error;
+    }
+  }
+
+  async describeTable(tableName: string) {
+    try {
+      const command = new DescribeTableCommand({
+        TableName: tableName
+      });
+      const response = await this.client.send(command);
+      return response;
+    } catch (error) {
+      logger.server.error('Error describing DynamoDB table');
       throw error;
     }
   }

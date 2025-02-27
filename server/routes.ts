@@ -404,9 +404,7 @@ export async function registerRoutes(app: Express) {
     try {
       const response = await dynamoDBService.listTables();
       const tables = await Promise.all((response.TableNames || []).map(async (tableName) => {
-        const describeTable = await dynamoDBService.client.send(new DescribeTableCommand({
-          TableName: tableName
-        }));
+        const describeTable = await dynamoDBService.describeTable(tableName);
         return {
           TableName: tableName,
           ItemCount: describeTable.Table?.ItemCount || 0,
@@ -423,7 +421,7 @@ export async function registerRoutes(app: Express) {
     }
   });
 
-  app.get("/api/aws/dynamodb/tables/:tableName/query", async (req, res) => {
+  app.get("/api/aws/dynamodb/tables/:tableName/items", async (req, res) => {
     try {
       const { tableName } = req.params;
       const response = await dynamoDBService.scan({
