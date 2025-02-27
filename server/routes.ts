@@ -5,6 +5,7 @@ import { s3Service } from './aws/services/s3';
 import { dynamoDBService } from './aws/services/dynamodb';
 import { lambdaService } from './aws/services/lambda'; // Added import
 import { stepFunctionsService } from './aws/services/stepfunctions'; // Added import
+import { iamService } from './aws/services/iam';
 const shopifyOrdersLambda = `// Lambda function code here`; // Placeholder for Lambda code
 const stepFunctionDefinition = {
   // Step Function definition here
@@ -498,6 +499,13 @@ export async function registerRoutes(app: Express) {
   // Step Functions and Lambda Routes for Shopify Orders Import
   app.post("/api/aws/shopify/import-setup", async (req, res) => {
     try {
+      // Create IAM roles first
+      const lambdaRole = await iamService.createLambdaRole();
+      const stepFunctionsRole = await iamService.createStepFunctionsRole();
+
+      // Wait for roles to propagate (AWS IAM has eventual consistency)
+      await new Promise(resolve => setTimeout(resolve, 10000));
+
       // Create DynamoDB table for orders if it doesn't exist
       await dynamoDBService.createTable({
         TableName: 'shopify_orders',
@@ -517,15 +525,15 @@ export async function registerRoutes(app: Express) {
       const lambdaResponse = await lambdaService.createFunction({
         FunctionName: 'shopify-orders-import',
         Runtime: 'nodejs18.x',
-        Role: process.env.AWS_LAMBDA_ROLE_ARN,
+        Role: lambdaRole.Arn,
         Handler: 'index.handler',
         Code: {
           ZipFile: Buffer.from(shopifyOrdersLambda)
         },
         Environment: {
           Variables: {
-            SHOPIFY_ACCESS_TOKEN: process.env.SHOPIFY_ACCESS_TOKEN,
-            SHOPIFY_SHOP_URL: process.env.SHOPIFY_SHOP_URL
+            SHOPIFY_ACCESS_TOKEN: process.env.SHOPIFY_ACCESS_TOKEN!,
+            SHOPIFY_SHOP_URL: process.env.SHOPIFY_SHOP_URL!
           }
         },
         Timeout: 300,
@@ -537,16 +545,18 @@ export async function registerRoutes(app: Express) {
         name: 'shopify-orders-import',
         definition: JSON.stringify(stepFunctionDefinition).replace(
           '#{LambdaFunctionArn}',
-          lambdaResponse.FunctionArn
+          lambdaResponse.FunctionArn!
         ),
-        roleArn: process.env.AWS_STEP_FUNCTIONS_ROLE_ARN,
+        roleArn: stepFunctionsRole.Arn,
         type: 'STANDARD'
       });
 
       res.json({
         message: 'Import workflow setup completed',
         lambdaArn: lambdaResponse.FunctionArn,
-        stateMachineArn: stepFunctionResponse.stateMachineArn
+        stateMachineArn: stepFunctionResponse.stateMachineArn,
+        lambdaRoleArn: lambdaRole.Arn,
+        stepFunctionsRoleArn: stepFunctionsRole.Arn
       });
     } catch (error) {
       logger.server.error('Error setting up import workflow');
