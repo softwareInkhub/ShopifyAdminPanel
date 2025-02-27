@@ -17,7 +17,8 @@ export default function DynamoDBPage() {
     tablesLoading,
     queryTable,
     createTable,
-    deleteTable
+    deleteTable,
+    putItem
   } = useDynamoDB();
 
   // Get items for selected table

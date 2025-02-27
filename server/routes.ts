@@ -399,5 +399,87 @@ export async function registerRoutes(app: Express) {
     }
   });
 
+  // DynamoDB Routes
+  app.get("/api/aws/dynamodb/tables", async (req, res) => {
+    try {
+      const response = await dynamoDBService.listTables();
+      const tables = await Promise.all((response.TableNames || []).map(async (tableName) => {
+        const describeTable = await dynamoDBService.client.send(new DescribeTableCommand({
+          TableName: tableName
+        }));
+        return {
+          TableName: tableName,
+          ItemCount: describeTable.Table?.ItemCount || 0,
+          TableStatus: describeTable.Table?.TableStatus || 'UNKNOWN'
+        };
+      }));
+      res.json(tables);
+    } catch (error) {
+      logger.server.error('Error listing DynamoDB tables');
+      res.status(500).json({
+        message: 'Failed to list tables',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
+  app.get("/api/aws/dynamodb/tables/:tableName/query", async (req, res) => {
+    try {
+      const { tableName } = req.params;
+      const response = await dynamoDBService.scan({
+        TableName: tableName,
+        Limit: 50  // Limit results for performance
+      });
+      res.json(response.Items || []);
+    } catch (error) {
+      logger.server.error('Error querying DynamoDB table');
+      res.status(500).json({
+        message: 'Failed to query table',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
+  app.post("/api/aws/dynamodb/tables", async (req, res) => {
+    try {
+      await dynamoDBService.createTable(req.body);
+      res.json({ message: 'Table created successfully' });
+    } catch (error) {
+      logger.server.error('Error creating DynamoDB table');
+      res.status(500).json({
+        message: 'Failed to create table',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
+  app.delete("/api/aws/dynamodb/tables/:tableName", async (req, res) => {
+    try {
+      const { tableName } = req.params;
+      await dynamoDBService.deleteTable(tableName);
+      res.json({ message: 'Table deleted successfully' });
+    } catch (error) {
+      logger.server.error('Error deleting DynamoDB table');
+      res.status(500).json({
+        message: 'Failed to delete table',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
+  app.post("/api/aws/dynamodb/tables/:tableName/items", async (req, res) => {
+    try {
+      const { tableName } = req.params;
+      await dynamoDBService.putItem(tableName, req.body);
+      res.json({ message: 'Item added successfully' });
+    } catch (error) {
+      logger.server.error('Error adding item to DynamoDB');
+      res.status(500).json({
+        message: 'Failed to add item',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
   return app;
 }
