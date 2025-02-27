@@ -1,11 +1,9 @@
 import { Link, useLocation } from 'wouter';
 import { LayoutDashboard, Package, ShoppingCart, Activity, BarChart, Cloud } from 'lucide-react';
 import { SiAmazon } from 'react-icons/si';
-import { useAWS } from '@/contexts/AWSContext';
 
 export default function Sidebar() {
   const [location] = useLocation();
-  const { isAuthenticated } = useAWS();
 
   const links = [
     { href: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -15,11 +13,8 @@ export default function Sidebar() {
     { href: '/analytics', label: 'Analytics', icon: BarChart }
   ];
 
-  // Add AWS section if authenticated
-  const awsLinks = isAuthenticated ? [
-    { href: '/aws/dashboard', label: 'AWS Dashboard', icon: SiAmazon },
-  ] : [
-    { href: '/aws/login', label: 'AWS Login', icon: SiAmazon }
+  const awsLinks = [
+    { href: '/aws/dashboard', label: 'AWS Resources', icon: SiAmazon }
   ];
 
   return (
@@ -49,7 +44,7 @@ export default function Sidebar() {
           <div className="px-4 py-2">
             <div className="flex items-center text-sm text-sidebar-foreground/70">
               <Cloud className="mr-2 h-4 w-4" />
-              AWS Resources
+              AWS Services
             </div>
           </div>
           {awsLinks.map(({ href, label, icon: Icon }) => (
